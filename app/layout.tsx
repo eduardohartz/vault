@@ -9,7 +9,6 @@ const inter = Inter({ subsets: ["latin"] })
 export const metadata: Metadata = {
   title: "Encrypted File Manager",
   description: "Secure file storage with client-side encryption",
-    generator: 'v0.dev'
 }
 
 export default function RootLayout({
