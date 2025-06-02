@@ -1,0 +1,58 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  credentialId String   @unique
+  publicKey    String
+  createdAt    DateTime @default(now())
+
+  files       File[]
+  sharedFiles SharedFile[]
+
+  @@map("users")
+}
+
+model File {
+  id            String   @id @default(cuid())
+  encryptedName String
+  originalSize  Int
+  encryptedPath String
+  salt          String
+  iv            String
+  nameSalt      String
+  nameIv        String
+  uploadedAt    DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  sharedFiles SharedFile[]
+
+  @@map("files")
+}
+
+model SharedFile {
+  id             String    @id @default(cuid())
+  shareToken     String    @unique
+  salt           String
+  iv             String
+  createdAt      DateTime  @default(now())
+  expiresAt      DateTime?
+  sharedFilePath String
+
+  fileId String
+  file   File   @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  sharedById String
+  sharedBy   User   @relation(fields: [sharedById], references: [id], onDelete: Cascade)
+
+  @@map("shared_files")
+}
