@@ -1,4 +1,3 @@
-// WebAuthn type extensions for PRF support
 interface AuthenticationExtensionsClientInputs {
   prf?: {
     eval?: {

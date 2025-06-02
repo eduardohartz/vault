@@ -7,7 +7,7 @@ import {
   ModalBody,
   ModalFooter,
   Button,
-} from "@nextui-org/react"
+} from "@heroui/react"
 import { CheckCircle, XCircle, AlertTriangle, Info } from "lucide-react"
 
 interface AlertModalProps {

@@ -1,4 +1,3 @@
-// Passkey/WebAuthn utilities with PRF support
 export class PasskeyManager {
   private static rpId =
     typeof window !== "undefined" ? window.location.hostname : "localhost"
@@ -13,30 +12,13 @@ export class PasskeyManager {
     if (typeof window === "undefined") return false
 
     try {
-      // Check if WebAuthn is available
       if (!window.PublicKeyCredential) return false
 
-      // Check if platform authenticator is available
       const available =
         await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
       if (!available) return false
 
-      // Check if PRF extension is supported by trying to access it
-      // The PRF extension should be available in the extensions
-      const testCredentialCreationOptions: PublicKeyCredentialCreationOptions =
-        {
-          challenge: new Uint8Array(32),
-          rp: { id: this.rpId, name: this.rpName },
-          user: { id: new Uint8Array(32), name: "test", displayName: "test" },
-          pubKeyCredParams: [{ alg: -7, type: "public-key" }],
-          extensions: {
-            prf: {},
-          },
-        }
-
-      // If we can create the options with PRF extension without error, it's likely supported
-      // We don't actually create the credential, just test the options
-      return true
+      return available
     } catch (error) {
       console.warn("PRF support check failed:", error)
       return false
@@ -87,7 +69,6 @@ export class PasskeyManager {
       throw new Error("Failed to create credential")
     }
 
-    // Verify PRF was actually enabled
     const extensions = credential.getClientExtensionResults()
     if (!extensions.prf?.enabled) {
       throw new Error("PRF extension was not enabled during registration")

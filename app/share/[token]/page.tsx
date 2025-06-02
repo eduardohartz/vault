@@ -10,7 +10,7 @@ import {
   Spinner,
   Input,
   useDisclosure,
-} from "@nextui-org/react"
+} from "@heroui/react"
 import { Download, Shield, FileIcon, Key, AlertTriangle } from "lucide-react"
 import { AdvancedCryptoManager } from "@/lib/advanced-crypto"
 import AlertModal from "@/components/alert-modal"
@@ -96,7 +96,6 @@ export default function SharePage() {
     try {
       setIsDecrypting(true)
 
-      // Derive key from share key for filename decryption
       const nameSalt = Uint8Array.from(atob(fileData.file.nameSalt), (c) =>
         c.charCodeAt(0),
       )
@@ -104,7 +103,6 @@ export default function SharePage() {
         c.charCodeAt(0),
       )
 
-      // Use share key for decryption
       const nameKey = await AdvancedCryptoManager.deriveFileKeyFromShareKey(
         shareKey.trim(),
         nameSalt,
@@ -142,7 +140,6 @@ export default function SharePage() {
     try {
       setIsDecrypting(true)
 
-      // Convert from base64
       const encryptedData = Uint8Array.from(
         atob(fileData.file.encryptedData),
         (c) => c.charCodeAt(0),
@@ -152,20 +149,17 @@ export default function SharePage() {
         c.charCodeAt(0),
       )
 
-      // Derive key from share key for file decryption
       const fileKey = await AdvancedCryptoManager.deriveFileKeyFromShareKey(
         shareKey.trim(),
         salt,
       )
 
-      // Decrypt file data
       const decryptedData = await AdvancedCryptoManager.decryptFileAdvanced(
         encryptedData.buffer,
         fileKey,
         iv,
       )
 
-      // Use decrypted name if available, otherwise try to decrypt it
       let fileName = decryptedName
       if (!fileName) {
         try {
@@ -190,7 +184,6 @@ export default function SharePage() {
         }
       }
 
-      // Download file
       const blob = new Blob([decryptedData])
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
@@ -285,7 +278,6 @@ export default function SharePage() {
           </CardHeader>
 
           <CardBody className="space-y-6">
-            {/* File Info */}
             <div className="bg-default-50 dark:bg-default-100 p-4 rounded-lg">
               <div className="flex items-center space-x-3 mb-3">
                 <FileIcon className="w-6 h-6 text-default-400" />
@@ -301,7 +293,6 @@ export default function SharePage() {
               </div>
             </div>
 
-            {/* Share Key Input */}
             <div className="space-y-4">
               <div>
                 <label className="block mb-2 font-medium text-sm">
@@ -342,7 +333,6 @@ export default function SharePage() {
               </div>
             </div>
 
-            {/* Security Notice */}
             <div className="bg-warning/10 p-3 border border-warning/20 rounded-lg">
               <div className="flex items-start space-x-2">
                 <AlertTriangle className="mt-0.5 w-5 h-5 text-warning" />

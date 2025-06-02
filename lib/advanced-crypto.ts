@@ -20,10 +20,20 @@ export class AdvancedCryptoManager {
   private static extractPRFBuffer(prfResult: any): Uint8Array {
     if (prfResult instanceof ArrayBuffer) {
       return new Uint8Array(prfResult)
-    } else if (ArrayBuffer.isView(prfResult) && prfResult.buffer instanceof ArrayBuffer) {
-      return new Uint8Array(prfResult.buffer, prfResult.byteOffset, prfResult.byteLength)
+    } else if (
+      ArrayBuffer.isView(prfResult) &&
+      prfResult.buffer instanceof ArrayBuffer
+    ) {
+      return new Uint8Array(
+        prfResult.buffer,
+        prfResult.byteOffset,
+        prfResult.byteLength,
+      )
     } else {
-      throw new Error("Unexpected PRF result type: " + Object.prototype.toString.call(prfResult))
+      throw new Error(
+        "Unexpected PRF result type: " +
+          Object.prototype.toString.call(prfResult),
+      )
     }
   }
 
@@ -32,7 +42,9 @@ export class AdvancedCryptoManager {
    * @param credentialId Uint8Array - The credential ID (raw binary)
    * @returns Uint8Array - PRF output
    */
-  static async generatePRFOutput(credentialId: Uint8Array): Promise<Uint8Array> {
+  static async generatePRFOutput(
+    credentialId: Uint8Array,
+  ): Promise<Uint8Array> {
     const challenge = crypto.getRandomValues(new Uint8Array(32))
 
     const assertion = (await navigator.credentials.get({
@@ -58,7 +70,10 @@ export class AdvancedCryptoManager {
     const extensions = assertion.getClientExtensionResults()
     const prfResult = extensions.prf?.results?.first
     if (!prfResult) {
-      throw new Error("PRF not supported or failed - this system requires PRF support. Extension result: " + JSON.stringify(extensions.prf))
+      throw new Error(
+        "PRF not supported or failed - this system requires PRF support. Extension result: " +
+          JSON.stringify(extensions.prf),
+      )
     }
     return this.extractPRFBuffer(prfResult)
   }
@@ -338,14 +353,18 @@ export class AdvancedCryptoManager {
   static async generateShareKey(privateKeyRaw: Uint8Array): Promise<string> {
     // Domain separation: combine private key with a unique context string
     const domainSeparator = this.SHARE_KEY_INFO // e.g., "FileManager-ShareKey-v1"
-    const combinedData = new Uint8Array(privateKeyRaw.length + domainSeparator.length)
+    const combinedData = new Uint8Array(
+      privateKeyRaw.length + domainSeparator.length,
+    )
     combinedData.set(privateKeyRaw)
     combinedData.set(domainSeparator, privateKeyRaw.length)
 
     // Hash with SHA-256 to create a non-reversible, fixed-length key
     const hashBuffer = await crypto.subtle.digest("SHA-256", combinedData)
     // Return as hex string for easy storage/usage
-    return Array.from(new Uint8Array(hashBuffer)).map((b) => b.toString(16).padStart(2, "0")).join("")
+    return Array.from(new Uint8Array(hashBuffer))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("")
   }
 
   /**

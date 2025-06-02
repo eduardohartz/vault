@@ -1,4 +1,3 @@
-// Client-side encryption utilities using AES-256
 export class CryptoManager {
   private static async deriveKey(
     password: string,
@@ -60,7 +59,6 @@ export class CryptoManager {
     return crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, encryptedData)
   }
 
-  // Utility to encrypt any data (for API communication)
   static async encryptData(
     data: string,
     password: string,
@@ -89,7 +87,6 @@ export class CryptoManager {
     }
   }
 
-  // Utility to decrypt any data (for API communication)
   static async decryptData(
     encryptedData: string,
     password: string,

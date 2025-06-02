@@ -108,7 +108,6 @@ export async function GET(
   }
 }
 
-// Delete all shares for a file (unshare)
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } },
@@ -120,7 +119,6 @@ export async function DELETE(
       return NextResponse.json({ error: "User ID required" }, { status: 400 })
     }
 
-    // Verify file exists and user owns it
     const file = await prisma.file.findFirst({
       where: {
         id: params.id,
@@ -135,7 +133,6 @@ export async function DELETE(
       )
     }
 
-    // Get all shares to delete their files
     const shares = await prisma.sharedFile.findMany({
       where: {
         fileId: params.id,
@@ -143,7 +140,6 @@ export async function DELETE(
       },
     })
 
-    // Delete shared files
     for (const share of shares) {
       if (share.sharedFilePath) {
         try {
@@ -158,7 +154,6 @@ export async function DELETE(
       }
     }
 
-    // Delete all shares for this file
     const deleteResult = await prisma.sharedFile.deleteMany({
       where: {
         fileId: params.id,

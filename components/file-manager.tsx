@@ -22,7 +22,7 @@ import {
   DropdownItem,
   Spinner,
   Input,
-} from "@nextui-org/react"
+} from "@heroui/react"
 import {
   Upload,
   Download,
@@ -88,7 +88,6 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { theme, setTheme } = useTheme()
 
-  // Modal states
   const {
     isOpen: isDeleteOpen,
     onOpen: onDeleteOpen,
@@ -134,11 +133,9 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
       const data = await response.json()
 
       if (response.ok) {
-        // Decrypt filenames using the private key
         const filesWithDecryptedNames = await Promise.all(
           data.files.map(async (file: FileItem) => {
             try {
-              // Decrypt filename using private key
               const nameSalt = Uint8Array.from(atob(file.nameSalt), (c) =>
                 c.charCodeAt(0),
               )
@@ -156,7 +153,6 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
                 nameIv,
               )
 
-              // Check share status
               const shareResponse = await fetch(
                 `/api/files/${file.id}/share?userId=${user.id}`,
               )
@@ -197,23 +193,19 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
   }
 
   const handleLogout = () => {
-    // Clear all local storage and session storage
     localStorage.clear()
     sessionStorage.clear()
 
-    // Clear any cached data
     setFiles([])
     setSelectedFile(null)
     setShareUrl("")
     setShareInfo([])
     setShowShareKey(false)
 
-    // Clear file input
     if (fileInputRef.current) {
       fileInputRef.current.value = ""
     }
 
-    // Call the parent logout function
     onLogout()
 
     showAlert(
@@ -233,13 +225,11 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
     setUploadProgress(0)
 
     try {
-      // Generate encryption salts
       const salt = crypto.getRandomValues(new Uint8Array(16))
       const nameSalt = crypto.getRandomValues(new Uint8Array(16))
 
       setUploadProgress(10)
 
-      // Generate encryption keys using PRIVATE KEY
       const fileKey = await AdvancedCryptoManager.deriveFileKeyFromPrivateKey(
         user.privateKeyRaw,
         salt,
@@ -251,19 +241,16 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
       setUploadProgress(25)
 
-      // Encrypt file
       const { encryptedData, iv } =
         await AdvancedCryptoManager.encryptFileAdvanced(file, fileKey)
 
       setUploadProgress(50)
 
-      // Encrypt filename
       const { encryptedName, iv: nameIv } =
         await AdvancedCryptoManager.encryptFilename(file.name, nameKey)
 
       setUploadProgress(75)
 
-      // Convert to base64 for storage
       const encryptedBase64 = btoa(
         String.fromCharCode(...new Uint8Array(encryptedData)),
       )
@@ -272,7 +259,6 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
       const nameIvBase64 = btoa(String.fromCharCode(...nameIv))
       const nameSaltBase64 = btoa(String.fromCharCode(...nameSalt))
 
-      // Upload encrypted data to server
       const formData = new FormData()
       formData.append("encryptedData", encryptedBase64)
       formData.append("iv", ivBase64)
@@ -319,7 +305,6 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
   const handleFileDownload = async (file: FileItem) => {
     try {
-      // Fetch encrypted file data from server with userId
       const response = await fetch(`/api/files/${file.id}?userId=${user.id}`)
       const data = await response.json()
 
@@ -329,27 +314,23 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
       const fileData = data.file
 
-      // Convert from base64
       const encryptedData = Uint8Array.from(atob(fileData.encryptedData), (c) =>
         c.charCodeAt(0),
       )
       const iv = Uint8Array.from(atob(fileData.iv), (c) => c.charCodeAt(0))
       const salt = Uint8Array.from(atob(fileData.salt), (c) => c.charCodeAt(0))
 
-      // Derive key for decryption using PRIVATE KEY
       const fileKey = await AdvancedCryptoManager.deriveFileKeyFromPrivateKey(
         user.privateKeyRaw,
         salt,
       )
 
-      // Decrypt file data
       const decryptedData = await AdvancedCryptoManager.decryptFileAdvanced(
         encryptedData.buffer,
         fileKey,
         iv,
       )
 
-      // Download file using the already decrypted name
       const blob = new Blob([decryptedData])
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
@@ -377,7 +358,6 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
   const handleFileShare = async (file: FileItem) => {
     if (file.isShared) {
-      // If already shared, show existing shares
       try {
         const response = await fetch(
           `/api/files/${file.id}/share?userId=${user.id}`,
@@ -397,7 +377,6 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
         showAlert("Share Failed", "Failed to get share link.", "error")
       }
     } else {
-      // Show confirmation modal for new share
       setSelectedFile(file)
       onShareConfirmOpen()
     }
@@ -437,7 +416,6 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
           },
         ])
         onShareOpen()
-        // Refresh files to update share status
         await loadFiles()
         showAlert(
           "Share Created",
@@ -534,7 +512,6 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
   return (
     <div className="bg-background min-h-screen">
-      {/* Header */}
       <div className="bg-content1 border-divider border-b">
         <div className="mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl">
           <div className="flex justify-between items-center h-16">
@@ -596,9 +573,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="mx-auto px-4 sm:px-6 lg:px-8 py-8 max-w-7xl">
-        {/* Share Key Display */}
         {showShareKey && (
           <Card className="mb-6">
             <CardHeader>
@@ -625,7 +600,6 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
           </Card>
         )}
 
-        {/* Upload Section */}
         <Card className="mb-6">
           <CardHeader>
             <h2 className="font-semibold text-lg">Upload Files</h2>
@@ -668,7 +642,6 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
           </CardBody>
         </Card>
 
-        {/* Files Table */}
         <Card>
           <CardHeader>
             <h2 className="font-semibold text-lg">
@@ -812,7 +785,6 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
         </Card>
       </div>
 
-      {/* Delete Confirmation Modal */}
       <Modal isOpen={isDeleteOpen} onClose={onDeleteClose}>
         <ModalContent>
           <ModalHeader>Delete File</ModalHeader>
@@ -840,7 +812,6 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
         </ModalContent>
       </Modal>
 
-      {/* Share Confirmation Modal */}
       <ShareConfirmationModal
         isOpen={isShareConfirmOpen}
         onClose={onShareConfirmClose}
@@ -849,7 +820,6 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
         userShareKey={user.shareKey}
       />
 
-      {/* Share Modal */}
       <Modal isOpen={isShareOpen} onClose={onShareClose}>
         <ModalContent>
           <ModalHeader>Share "{selectedFile?.decryptedName}"</ModalHeader>
@@ -929,7 +899,6 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
         </ModalContent>
       </Modal>
 
-      {/* Alert Modal */}
       <AlertModal
         isOpen={isAlertOpen}
         onClose={onAlertClose}

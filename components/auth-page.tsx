@@ -9,7 +9,7 @@ import {
   Input,
   Spinner,
   useDisclosure,
-} from "@nextui-org/react"
+} from "@heroui/react"
 import { PasskeyManager } from "@/lib/passkey"
 import { AdvancedCryptoManager } from "@/lib/advanced-crypto"
 import { Shield, Key, Moon, Sun } from "lucide-react"
@@ -37,7 +37,6 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
   const [debugInfo, setDebugInfo] = useState("")
   const { theme, setTheme } = useTheme()
 
-  // Alert modal
   const {
     isOpen: isAlertOpen,
     onOpen: onAlertOpen,
@@ -117,44 +116,37 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
     setDebugInfo("Starting registration...")
 
     try {
-      // Step 1: Create passkey with PRF
       setDebugInfo("Creating passkey with PRF...")
       const { credential } = await PasskeyManager.register(username.trim())
       setDebugInfo(`Passkey created: ${credential.id}`)
 
-      // Step 2: Get PRF output by authenticating with the new credential
       setDebugInfo("Getting PRF output from new credential...")
       const credentialIdArray = new Uint8Array(credential.rawId)
       const credentialIdString = Array.from(credentialIdArray, (byte) =>
         String.fromCharCode(byte),
       ).join("")
 
-      // Authenticate immediately to get PRF output
       const prfOutput = await AdvancedCryptoManager.generatePRFOutput(
-        credentialIdString,
+        new TextEncoder().encode(credentialIdString),
       )
       setDebugInfo("PRF output obtained successfully")
 
-      // Step 3: Generate deterministic keys
       setDebugInfo("Generating deterministic encryption keys...")
       const hkdfSeed = await AdvancedCryptoManager.generateHKDFSeed(prfOutput)
       const { privateKey, publicKey, privateKeyRaw, publicKeyRaw } =
         await AdvancedCryptoManager.generateECDHKeyPair(hkdfSeed)
 
-      // Export public key for server storage
       const publicKeyExported = await crypto.subtle.exportKey("raw", publicKey)
       const publicKeyBase64 = btoa(
         String.fromCharCode(...new Uint8Array(publicKeyExported)),
       )
 
-      // Generate share key from private key (NEVER send to server)
       const shareKey = await AdvancedCryptoManager.generateShareKey(
         privateKeyRaw,
       )
 
       setDebugInfo("Keys generated successfully")
 
-      // Step 4: Register with server - send PUBLIC key only
       setDebugInfo("Registering with server...")
       const response = await fetch("/api/auth/register", {
         method: "POST",
@@ -207,16 +199,14 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
       const credential = await PasskeyManager.authenticate()
       setDebugInfo(`Authenticated: ${credential.id}`)
 
-      // Generate keys from PRF (NO FALLBACKS)
       setDebugInfo("Regenerating keys from PRF...")
       const prfOutput = await AdvancedCryptoManager.generatePRFOutput(
-        credential.id,
+        new TextEncoder().encode(credential.id),
       )
       const hkdfSeed = await AdvancedCryptoManager.generateHKDFSeed(prfOutput)
       const { privateKey, privateKeyRaw } =
         await AdvancedCryptoManager.generateECDHKeyPair(hkdfSeed)
 
-      // Generate share key from private key
       const shareKey = await AdvancedCryptoManager.generateShareKey(
         privateKeyRaw,
       )
@@ -415,7 +405,6 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
         </CardBody>
       </Card>
 
-      {/* Alert Modal */}
       <AlertModal
         isOpen={isAlertOpen}
         onClose={onAlertClose}

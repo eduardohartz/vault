@@ -11,7 +11,7 @@ import {
   RadioGroup,
   Radio,
   Input,
-} from "@nextui-org/react"
+} from "@heroui/react"
 import { Copy } from "lucide-react"
 
 interface ShareConfirmationModalProps {
