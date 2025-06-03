@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, SetStateAction } from "react"
 import {
   Card,
   CardBody,
@@ -12,7 +12,7 @@ import {
 } from "@heroui/react"
 import { PasskeyManager } from "@/lib/passkey"
 import { AdvancedCryptoManager } from "@/lib/advanced-crypto"
-import { Shield, Key, Moon, Sun } from "lucide-react"
+import { Shield, Key, Moon, Sun, CheckCircle } from "lucide-react"
 import { useTheme } from "next-themes"
 import AlertModal from "@/components/alert-modal"
 
@@ -35,6 +35,10 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
   const [isSupported, setIsSupported] = useState(false)
   const [hasCheckedUsername, setHasCheckedUsername] = useState(false)
   const [debugInfo, setDebugInfo] = useState("")
+  const [registrationStep, setRegistrationStep] = useState<
+    "check" | "passkey-created" | "complete"
+  >("check")
+  const [credentialId, setCredentialId] = useState<string>("")
   const { theme, setTheme } = useTheme()
 
   const {
@@ -110,28 +114,60 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
     }
   }
 
-  const handleRegister = async () => {
+  const handleCreatePasskey = async () => {
     setIsProcessing(true)
     setError("")
-    setDebugInfo("Starting registration...")
+    setDebugInfo("Creating passkey...")
 
     try {
-      setDebugInfo("Creating passkey with PRF...")
       const { credential } = await PasskeyManager.register(username.trim())
       setDebugInfo(`Passkey created: ${credential.id}`)
 
-      setDebugInfo("Getting PRF output from new credential...")
-      const credentialIdArray = new Uint8Array(credential.rawId)
-      const credentialIdString = Array.from(credentialIdArray, (byte) =>
-        String.fromCharCode(byte),
-      ).join("")
+      // Store credential ID for the next step
+      setCredentialId(credential.id)
+      setRegistrationStep("passkey-created")
 
-      const prfOutput = await AdvancedCryptoManager.generatePRFOutput(
-        new TextEncoder().encode(credentialIdString),
+      showAlert(
+        "Passkey Created",
+        "Your passkey has been created successfully! Now we'll set up your encryption keys.",
+        "success",
       )
-      setDebugInfo("PRF output obtained successfully")
+    } catch (error) {
+      showAlert(
+        "Passkey Creation Failed",
+        "Failed to create passkey. Please try again.",
+        "error",
+      )
+      setDebugInfo(`Error: ${error}`)
+      console.error("Passkey creation error:", error)
+    } finally {
+      setIsProcessing(false)
+    }
+  }
 
-      setDebugInfo("Generating deterministic encryption keys...")
+  const handleCompleteRegistration = async () => {
+    setIsProcessing(true)
+    setError("")
+    setDebugInfo("Authenticating with new passkey to generate keys...")
+
+    try {
+      // Add a small delay to ensure the passkey is properly registered
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+
+      // Authenticate with the newly created passkey to get PRF
+      const credential = await PasskeyManager.authenticate()
+      setDebugInfo(`Authenticated: ${credential.id}`)
+
+      // Verify this is the same credential we just created
+      if (credential.id !== credentialId) {
+        throw new Error("Authenticated with different credential than expected")
+      }
+
+      setDebugInfo("Generating encryption keys from PRF...")
+      const prfOutput = await AdvancedCryptoManager.generatePRFOutput(
+        new Uint8Array(credential.rawId),
+      )
+
       const hkdfSeed = await AdvancedCryptoManager.generateHKDFSeed(prfOutput)
       const { privateKey, publicKey, privateKeyRaw, publicKeyRaw } =
         await AdvancedCryptoManager.generateECDHKeyPair(hkdfSeed)
@@ -162,6 +198,7 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
 
       if (data.success) {
         setDebugInfo("Registration successful!")
+        setRegistrationStep("complete")
         onAuthenticated({
           id: data.userId,
           username: username.trim(),
@@ -179,11 +216,15 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
     } catch (error) {
       showAlert(
         "Registration Failed",
-        "Failed to create passkey or generate keys. PRF support required.",
+        "Failed to authenticate with new passkey or generate keys.",
         "error",
       )
       setDebugInfo(`Error: ${error}`)
-      console.error("Registration error:", error)
+      console.error("Registration completion error:", error)
+
+      // Reset to allow retry
+      setRegistrationStep("check")
+      setCredentialId("")
     } finally {
       setIsProcessing(false)
     }
@@ -201,7 +242,7 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
 
       setDebugInfo("Regenerating keys from PRF...")
       const prfOutput = await AdvancedCryptoManager.generatePRFOutput(
-        new TextEncoder().encode(credential.id),
+        new Uint8Array(credential.rawId),
       )
       const hkdfSeed = await AdvancedCryptoManager.generateHKDFSeed(prfOutput)
       const { privateKey, privateKeyRaw } =
@@ -256,6 +297,8 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
     setUserExists(false)
     setCanRegister(false)
     setHasCheckedUsername(false)
+    setRegistrationStep("check")
+    setCredentialId("")
     setError("")
     setDebugInfo("")
   }
@@ -327,10 +370,14 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
                   label="Username"
                   placeholder="Enter your username"
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={(e: {
+                    target: { value: SetStateAction<string> }
+                  }) => setUsername(e.target.value)}
                   startContent={<Key className="w-4 h-4 text-default-400" />}
                   isDisabled={isLoading}
-                  onKeyDown={(e) => e.key === "Enter" && checkUsername()}
+                  onKeyDown={(e: { key: string }) =>
+                    e.key === "Enter" && checkUsername()
+                  }
                 />
               </div>
 
@@ -373,16 +420,54 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
                   {isProcessing ? "Authenticating..." : "Login with Passkey"}
                 </Button>
               ) : canRegister ? (
-                <Button
-                  color="primary"
-                  size="lg"
-                  className="w-full"
-                  onPress={handleRegister}
-                  isLoading={isProcessing}
-                  startContent={!isProcessing && <Shield className="w-4 h-4" />}
-                >
-                  {isProcessing ? "Creating Passkey..." : "Create Passkey"}
-                </Button>
+                <>
+                  {registrationStep === "check" && (
+                    <Button
+                      color="primary"
+                      size="lg"
+                      className="w-full"
+                      onPress={handleCreatePasskey}
+                      isLoading={isProcessing}
+                      startContent={
+                        !isProcessing && <Shield className="w-4 h-4" />
+                      }
+                    >
+                      {isProcessing ? "Creating Passkey..." : "Create Passkey"}
+                    </Button>
+                  )}
+
+                  {registrationStep === "passkey-created" && (
+                    <div className="space-y-4">
+                      <div className="bg-success/10 p-3 border border-success/20 rounded-lg">
+                        <div className="flex items-center space-x-2">
+                          <CheckCircle className="w-5 h-5 text-success" />
+                          <p className="font-medium text-success text-sm">
+                            Passkey Created Successfully!
+                          </p>
+                        </div>
+                        <p className="mt-1 text-success text-xs">
+                          Now we'll authenticate with your new passkey to set up
+                          encryption keys.
+                        </p>
+                      </div>
+
+                      <Button
+                        color="primary"
+                        size="lg"
+                        className="w-full"
+                        onPress={handleCompleteRegistration}
+                        isLoading={isProcessing}
+                        startContent={
+                          !isProcessing && <Key className="w-4 h-4" />
+                        }
+                      >
+                        {isProcessing
+                          ? "Setting up encryption..."
+                          : "Complete Account Setup"}
+                      </Button>
+                    </div>
+                  )}
+                </>
               ) : (
                 <Button color="danger" size="lg" className="w-full" isDisabled>
                   Registration Unavailable

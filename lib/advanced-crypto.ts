@@ -68,31 +68,22 @@ export class AdvancedCryptoManager {
     })) as PublicKeyCredential
 
     const extensions = assertion.getClientExtensionResults()
-    const prfResult = extensions.prf?.results?.first
-    if (!prfResult) {
+
+    if (
+      !extensions ||
+      typeof extensions !== "object" ||
+      !("prf" in extensions) ||
+      !extensions.prf?.results?.first
+    ) {
+      console.error("Full extension results:", extensions)
       throw new Error(
-        "PRF not supported or failed - this system requires PRF support. Extension result: " +
-          JSON.stringify(extensions.prf),
+        "PRF not supported or failed. Extension returned: " +
+          JSON.stringify(extensions),
       )
     }
-    return this.extractPRFBuffer(prfResult)
-  }
 
-  /**
-   * Generate PRF output directly from a WebAuthn credential object.
-   * @param credential PublicKeyCredential - The credential object
-   * @returns Uint8Array - PRF output
-   */
-  static async generatePRFOutputFromCredential(
-    credential: PublicKeyCredential,
-  ): Promise<Uint8Array> {
-    const extensions = credential.getClientExtensionResults()
-    if (!extensions.prf?.enabled) {
-      throw new Error("PRF extension was not enabled during registration")
-    }
-    // credential.rawId is always an ArrayBuffer
-    const credentialId = new Uint8Array(credential.rawId)
-    return this.generatePRFOutput(credentialId)
+    const prfRaw = extensions.prf.results.first
+    return this.extractPRFBuffer(prfRaw)
   }
 
   // Generate deterministic HKDF seed from PRF output
@@ -160,8 +151,6 @@ export class AdvancedCryptoManager {
     const privateKeyArray = new Uint8Array(privateKeyBytes)
 
     // Step 4: Ensure the private key is valid for P-256 curve
-    // P-256 private keys must be in range [1, n-1] where n is the curve order
-    // For P-256: n = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
     const validPrivateKey = await this.ensureValidP256PrivateKey(
       privateKeyArray,
     )
@@ -182,7 +171,6 @@ export class AdvancedCryptoManager {
     )
 
     // Step 7: Derive the corresponding public key
-    // We need to compute the public key from the private key
     const publicKeyRaw = await this.derivePublicKeyFromPrivate(validPrivateKey)
 
     // Step 8: Import the public key

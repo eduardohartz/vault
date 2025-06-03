@@ -60,18 +60,18 @@ export class PasskeyManager {
         timeout: 60000,
         attestation: "direct",
         extensions: {
-          prf: {},
+          prf: {
+            eval: {
+              first: new TextEncoder().encode("FileManager-PRF-Salt-v1"),
+            },
+          },
         },
+        // Don't request PRF during registration - it's not available
       },
     })) as PublicKeyCredential
 
     if (!credential) {
       throw new Error("Failed to create credential")
-    }
-
-    const extensions = credential.getClientExtensionResults()
-    if (!extensions.prf?.enabled) {
-      throw new Error("PRF extension was not enabled during registration")
     }
 
     return {
