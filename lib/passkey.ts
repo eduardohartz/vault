@@ -18,7 +18,15 @@ export class PasskeyManager {
         await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
       if (!available) return false
 
-      return available
+      const capabilities = await PublicKeyCredential.getClientCapabilities()
+
+      if (
+        capabilities["extension:prf"] === false ||
+        !capabilities["extension:prf"]
+      )
+        return false
+
+      return true
     } catch (error) {
       console.warn("PRF support check failed:", error)
       return false

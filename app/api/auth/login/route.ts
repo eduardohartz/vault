@@ -18,7 +18,6 @@ export async function POST(request: NextRequest) {
       user: {
         id: user.id,
         username: user.username,
-        shareKey: user.shareKey,
       },
     })
   } catch (error) {
