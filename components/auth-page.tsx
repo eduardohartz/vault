@@ -123,6 +123,15 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
       const { credential } = await PasskeyManager.register(username.trim())
       setDebugInfo(`Passkey created: ${credential.id}`)
 
+      console.log(
+        credential.getClientExtensionResults(),
+        credential.getClientExtensionResults().prf,
+      )
+
+      if (credential.getClientExtensionResults().prf?.enabled !== true) {
+        throw new Error("PRF extension not enabled")
+      }
+
       // Store credential ID for the next step
       setCredentialId(credential.id)
       setRegistrationStep("passkey-created")
@@ -164,9 +173,7 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
       }
 
       setDebugInfo("Generating encryption keys from PRF...")
-      const prfOutput = await AdvancedCryptoManager.generatePRFOutput(
-        new Uint8Array(credential.rawId),
-      )
+      const prfOutput = await AdvancedCryptoManager.getPRFOutput(credential)
 
       const hkdfSeed = await AdvancedCryptoManager.generateHKDFSeed(prfOutput)
       const { privateKey, publicKey, privateKeyRaw, publicKeyRaw } =
@@ -241,9 +248,7 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
       setDebugInfo(`Authenticated: ${credential.id}`)
 
       setDebugInfo("Regenerating keys from PRF...")
-      const prfOutput = await AdvancedCryptoManager.generatePRFOutput(
-        new Uint8Array(credential.rawId),
-      )
+      const prfOutput = await AdvancedCryptoManager.getPRFOutput(credential)
       const hkdfSeed = await AdvancedCryptoManager.generateHKDFSeed(prfOutput)
       const { privateKey, privateKeyRaw } =
         await AdvancedCryptoManager.generateECDHKeyPair(hkdfSeed)
@@ -354,12 +359,12 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
 
       <Card className="w-full max-w-md">
         <CardHeader className="pb-2 text-center">
-          <div className="flex justify-center mb-4">
+          <div className="flex justify-center items-center gap-1">
             <div className="bg-primary/10 p-3 rounded-full">
               <Shield className="w-8 h-8 text-primary" />
             </div>
+            <h1 className="font-bold text-xl">Vault</h1>
           </div>
-          <h1 className="font-bold text-2xl">File Manager</h1>
         </CardHeader>
 
         <CardBody className="pt-2">

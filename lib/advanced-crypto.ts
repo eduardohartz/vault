@@ -38,36 +38,29 @@ export class AdvancedCryptoManager {
   }
 
   /**
-   * Generate PRF output from WebAuthn credential - NO FALLBACKS
+   * Generate PRF output from WebAuthn credential
    * @param credentialId Uint8Array - The credential ID (raw binary)
    * @returns Uint8Array - PRF output
    */
-  static async generatePRFOutput(
-    credentialId: Uint8Array,
+  static async getPRFOutput(
+    assertion: PublicKeyCredential,
   ): Promise<Uint8Array> {
-    const challenge = crypto.getRandomValues(new Uint8Array(32))
-
-    const assertion = (await navigator.credentials.get({
-      publicKey: {
-        challenge,
-        allowCredentials: [
-          {
-            type: "public-key",
-            id: credentialId,
-          },
-        ],
-        userVerification: "required",
-        extensions: {
-          prf: {
-            eval: {
-              first: this.PRF_SALT,
-            },
-          },
-        },
-      },
-    })) as PublicKeyCredential
-
     const extensions = assertion.getClientExtensionResults()
+
+    const result = extensions.prf.results.first
+
+    console.log(result)
+
+    // Normalize to Uint8Array
+    const uint8 =
+      result instanceof ArrayBuffer
+        ? new Uint8Array(result)
+        : new Uint8Array(result.buffer)
+
+    // Convert to base64
+    const base64 = btoa(String.fromCharCode(...Array.from(uint8)))
+
+    console.log(base64)
 
     if (
       !extensions ||

@@ -1,3 +1,5 @@
+import { keccak256 } from "js-sha3"
+
 export class PasskeyManager {
   private static rpId =
     typeof window !== "undefined" ? window.location.hostname : "localhost"
@@ -67,14 +69,7 @@ export class PasskeyManager {
         },
         timeout: 60000,
         attestation: "direct",
-        extensions: {
-          prf: {
-            eval: {
-              first: new TextEncoder().encode("FileManager-PRF-Salt-v1"),
-            },
-          },
-        },
-        // Don't request PRF during registration - it's not available
+        extensions: { prf: {} },
       },
     })) as PublicKeyCredential
 
@@ -97,6 +92,10 @@ export class PasskeyManager {
 
     const challenge = crypto.getRandomValues(new Uint8Array(32))
 
+    const input = "filekey_security_key_wallet_first"
+    const hashHex: string = keccak256(input)
+    const buffer: ArrayBuffer = hexToArrayBuffer(hashHex)
+
     const credential = (await navigator.credentials.get({
       publicKey: {
         challenge,
@@ -106,7 +105,7 @@ export class PasskeyManager {
         extensions: {
           prf: {
             eval: {
-              first: new TextEncoder().encode("FileManager-PRF-Salt-v1"),
+              first: buffer,
             },
           },
         },
@@ -119,4 +118,14 @@ export class PasskeyManager {
 
     return credential
   }
+}
+
+function hexToArrayBuffer(hex: string): ArrayBuffer {
+  if (hex.startsWith("0x")) hex = hex.slice(2)
+  const len = hex.length / 2
+  const bytes = new Uint8Array(len)
+  for (let i = 0; i < len; i++) {
+    bytes[i] = parseInt(hex.substr(i * 2, 2), 16)
+  }
+  return bytes.buffer
 }
