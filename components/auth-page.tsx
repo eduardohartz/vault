@@ -6,13 +6,13 @@ import { CheckCircle, Key, Moon, Shield, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useEffect, useState } from "react"
 import AlertModal from "@/components/alert-modal"
-import { CryptoManager } from "@/lib/crypto-manager"
 import { BufferHelper } from "@/lib/buffer-helper"
+import { CryptoManager } from "@/lib/crypto-manager"
 import { KeyHelper } from "@/lib/key-helper"
-import { PasskeyManager } from "@/lib/passkey"
+import { PasskeyManager } from "@/lib/passkey-manager"
 
 type AuthPageProps = {
-  onAuthenticated: (user: { id: string; username: string; privateKey: any; publicKey: any; shareKey: string }) => void
+  onAuthenticated: (user: { id: string, username: string, privateKey: any, publicKey: any, shareKey: string }) => void
 }
 
 export default function AuthPage({ onAuthenticated }: AuthPageProps) {
@@ -290,7 +290,9 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
             <>
               <div className="bg-default-50 dark:bg-default-100 mb-4 p-3 rounded-lg">
                 <p className="text-sm">
-                  <strong>Username:</strong> {username}
+                  <strong>Username:</strong>
+                  {" "}
+                  {username}
                 </p>
                 <Button size="sm" variant="light" onPress={resetForm} className="mt-2">
                   Change Username

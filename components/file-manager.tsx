@@ -518,7 +518,11 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
         <Card>
           <CardHeader>
-            <h2 className="font-semibold text-lg">Your Files ({files.length})</h2>
+            <h2 className="font-semibold text-lg">
+              Your Files (
+              {files.length}
+              )
+            </h2>
           </CardHeader>
           <CardBody>
             {isLoading ? (
@@ -617,7 +621,14 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
           <ModalHeader>Delete File</ModalHeader>
           <ModalBody>
             <p>
-              Are you sure you want to delete <strong>"{selectedFile?.decryptedName}"</strong>?
+              Are you sure you want to delete
+              {" "}
+              <strong>
+                "
+                {selectedFile?.decryptedName}
+                "
+              </strong>
+              ?
             </p>
             <p className="text-default-600 text-sm">This action cannot be undone and will also remove any shared links.</p>
           </ModalBody>
@@ -636,7 +647,11 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
       <Modal isOpen={isShareOpen} onClose={onShareClose}>
         <ModalContent>
-          <ModalHeader>Share "{selectedFile?.decryptedName}"</ModalHeader>
+          <ModalHeader>
+            Share "
+            {selectedFile?.decryptedName}
+            "
+          </ModalHeader>
           <ModalBody>
             <p className="mb-4">
               {shareInfo && shareInfo.id === "new"

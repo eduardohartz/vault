@@ -1,6 +1,6 @@
 import { CryptoManager } from "./crypto-manager"
 
-export type Point = { x: bigint; y: bigint }
+export type Point = { x: bigint, y: bigint }
 
 export class BufferHelper {
   static convertBufferType<T extends ArrayBufferView>(sourceBuff: ArrayBufferView, OutputType: new (buffer: ArrayBuffer) => T): T {
@@ -46,8 +46,8 @@ export class BufferHelper {
 
     for (let i = 0; i < buffer.length; ++i) {
       const byte = buffer[i]
-      output[2 * i] = table[(byte >> 4) & 0x0f]
-      output[2 * i + 1] = table[byte & 0x0f]
+      output[2 * i] = table[(byte >> 4) & 0x0F]
+      output[2 * i + 1] = table[byte & 0x0F]
     }
 
     return output.join("")

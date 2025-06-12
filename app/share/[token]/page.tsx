@@ -212,7 +212,9 @@ export default function SharePage() {
                 <div>
                   <p className="font-medium">{decryptedName || "[Enter share key to decrypt filename]"}</p>
                   <p className="text-default-600 text-sm">
-                    {formatFileSize(fileData?.originalSize || 0)} • Uploaded
+                    {formatFileSize(fileData?.originalSize || 0)}
+                    {" "}
+                    • Uploaded
                     {formatDate(fileData?.createdAt.toString() || "")}
                   </p>
                 </div>

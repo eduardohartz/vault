@@ -153,9 +153,9 @@ export class CryptoManager {
     file: File,
     encryptionKey: CryptoKey,
   ): Promise<{
-    encryptedData: ArrayBuffer
-    iv: Uint8Array
-  }> {
+      encryptedData: ArrayBuffer
+      iv: Uint8Array
+    }> {
     const iv = crypto.getRandomValues(new Uint8Array(12))
     const fileBuffer = file instanceof File ? await file.arrayBuffer() : file
 
@@ -174,9 +174,9 @@ export class CryptoManager {
     filename: string,
     key: CryptoKey,
   ): Promise<{
-    encryptedName: string
-    iv: Uint8Array
-  }> {
+      encryptedName: string
+      iv: Uint8Array
+    }> {
     const iv = crypto.getRandomValues(new Uint8Array(12))
     const nameBuffer = new TextEncoder().encode(filename)
 
