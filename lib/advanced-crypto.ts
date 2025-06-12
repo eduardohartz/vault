@@ -35,7 +35,7 @@ export class AdvancedCryptoManager {
 
   // Convert PRF output to CryptoKey for HKDF
   static async generateHKDFKey(prfOutput: BufferSource): Promise<CryptoKey> {
-    return self.crypto.subtle.importKey("raw", prfOutput, { name: "HKDF" }, false, ["deriveKey", "deriveBits"])
+    return globalThis.crypto.subtle.importKey("raw", prfOutput, { name: "HKDF" }, false, ["deriveKey", "deriveBits"])
   }
 
   // Generate new seed from PRF key

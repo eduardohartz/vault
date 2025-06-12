@@ -3,17 +3,12 @@ import { AdvancedCryptoManager } from "./advanced-crypto"
 export type Point = { x: bigint, y: bigint }
 
 export class BufferHelper {
-  static convertBufferType<T extends ArrayBufferView>(
-    sourceBuff: ArrayBufferView,
-    outputType: new (buffer: ArrayBuffer) => T,
-  ): T {
+  static convertBufferType<T extends ArrayBufferView>(sourceBuff: ArrayBufferView, OutputType: new (buffer: ArrayBuffer) => T): T {
     const buffer = new ArrayBuffer(sourceBuff.byteLength)
-    const SourceType = this.getBufferTypedArrayConstructor(
-      Object.prototype.toString.call(sourceBuff),
-    )
+    const SourceType = this.getBufferTypedArrayConstructor(Object.prototype.toString.call(sourceBuff))
     const sourceView = new SourceType(buffer)
     sourceView.set(sourceBuff as any)
-    return new outputType(buffer)
+    return new OutputType(buffer)
   }
 
   static toArrayBuffer(input: BufferSource): ArrayBuffer {
@@ -22,25 +17,15 @@ export class BufferHelper {
     }
 
     if (ArrayBuffer.isView(input)) {
-      return input.buffer.slice(
-        input.byteOffset,
-        input.byteOffset + input.byteLength,
-      ) as ArrayBuffer
+      return input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength) as ArrayBuffer
     }
 
-    throw new TypeError(
-      "Input must be a BufferSource (ArrayBuffer or TypedArray)",
-    )
+    throw new TypeError("Input must be a BufferSource (ArrayBuffer or TypedArray)")
   }
 
-  static bufferPush(
-    source_buff: ArrayBufferView,
-    new_values: number,
-  ): ArrayBufferView {
-    const source_buff_type = this.getBufferTypedArrayConstructor(
-      Object.prototype.toString.call(source_buff),
-    )
-    const new_ab = new source_buff_type((source_buff as any).length + 1)
+  static bufferPush(source_buff: ArrayBufferView, new_values: number): ArrayBufferView {
+    const Source_buff_type = this.getBufferTypedArrayConstructor(Object.prototype.toString.call(source_buff))
+    const new_ab = new Source_buff_type((source_buff as any).length + 1)
     new_ab.set(source_buff as any, 0)
     new_ab[new_ab.length - 1] = new_values
     return new_ab
@@ -48,8 +33,7 @@ export class BufferHelper {
 
   static getBufferTypedArrayConstructor(tag: string): any {
     const typeName = tag.substring(8, tag.length - 1)
-    const globalScope = new Function("return this")()
-    const ctor = globalScope[typeName]
+    const ctor = (globalThis as any)[typeName]
     if (ctor && typeof ctor === "function") {
       return ctor
     }
@@ -76,10 +60,7 @@ export class BufferHelper {
     return hexStr
   }
 
-  static hexToArrayBuffer(
-    hexStr: string,
-    bufferType: any = null,
-  ): ArrayBuffer | ArrayBufferView {
+  static hexToArrayBuffer(hexStr: string, BufferType: any = null): ArrayBuffer | ArrayBufferView {
     hexStr = this.hexStringToHexNumber(hexStr)
 
     const ret: number[] = []
@@ -89,8 +70,8 @@ export class BufferHelper {
       ret.push(n)
     }
 
-    if (bufferType) {
-      return new bufferType(ret)
+    if (BufferType) {
+      return new BufferType(ret)
     }
     return new Uint8Array(ret).buffer
   }
@@ -160,22 +141,10 @@ export class BufferHelper {
       return null
     }
 
-    const slope = this.modMul(
-      this.modSub(P2.y, P1.y, P),
-      this.modInv(this.modSub(P2.x, P1.x, P), P),
-      P,
-    )
+    const slope = this.modMul(this.modSub(P2.y, P1.y, P), this.modInv(this.modSub(P2.x, P1.x, P), P), P)
 
-    const x3 = this.modSub(
-      this.modSub(this.modMul(slope, slope, P), P1.x, P),
-      P2.x,
-      P,
-    )
-    const y3 = this.modSub(
-      this.modMul(slope, this.modSub(P1.x, x3, P), P),
-      P1.y,
-      P,
-    )
+    const x3 = this.modSub(this.modSub(this.modMul(slope, slope, P), P1.x, P), P2.x, P)
+    const y3 = this.modSub(this.modMul(slope, this.modSub(P1.x, x3, P), P), P1.y, P)
 
     const result: Point = { x: x3, y: y3 }
     if (!this.isOnCurve(result)) {
@@ -191,22 +160,10 @@ export class BufferHelper {
     const { x, y } = P
     const { A, P: mod } = AdvancedCryptoManager
 
-    const slope = this.modMul(
-      this.modAdd(this.modMul(BigInt(3), this.modMul(x, x, mod), mod), A, mod),
-      this.modInv(this.modMul(BigInt(2), y, mod), mod),
-      mod,
-    )
+    const slope = this.modMul(this.modAdd(this.modMul(BigInt(3), this.modMul(x, x, mod), mod), A, mod), this.modInv(this.modMul(BigInt(2), y, mod), mod), mod)
 
-    const x3 = this.modSub(
-      this.modMul(slope, slope, mod),
-      this.modMul(BigInt(2), x, mod),
-      mod,
-    )
-    const y3 = this.modSub(
-      this.modMul(slope, this.modSub(x, x3, mod), mod),
-      y,
-      mod,
-    )
+    const x3 = this.modSub(this.modMul(slope, slope, mod), this.modMul(BigInt(2), x, mod), mod)
+    const y3 = this.modSub(this.modMul(slope, this.modSub(x, x3, mod), mod), y, mod)
 
     const result: Point = { x: x3, y: y3 }
     if (!this.isOnCurve(result)) {

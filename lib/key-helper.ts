@@ -47,7 +47,7 @@ export class KeyHelper {
   }
 
   static convertToPKCS8(privateKey: bigint, inner_cb: (result: { success: boolean, key?: CryptoKey, pkcs8Buffer?: ArrayBuffer, error?: string, warning?: string }) => void): void {
-    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
+    const isSafari = /^(?:(?!chrome|android).)*safari/i.test(navigator.userAgent)
 
     if (isSafari) {
       this.convertSafariPKCS8Deterministic(privateKey, inner_cb)

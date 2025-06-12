@@ -85,10 +85,6 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
     type: "info" as "success" | "error" | "warning" | "info",
   })
 
-  useEffect(() => {
-    loadFiles()
-  }, [user.id])
-
   const showAlert = (title: string, message: string, type: "success" | "error" | "warning" | "info" = "info") => {
     setAlertConfig({ title, message, type })
     onAlertOpen()
@@ -103,7 +99,6 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
         const filesWithDecryptedNames = await Promise.all(
           data.files.map(async (file: FileItem) => {
             try {
-              const nameSalt = Uint8Array.from(atob(file.nameSalt), (c) => c.charCodeAt(0))
               const nameIv = Uint8Array.from(atob(file.nameIv), (c) => c.charCodeAt(0))
               const key = await AdvancedCryptoManager.deriveECDHKey(user.privateKey.key, user.publicKey.key)
               const decryptedName = await AdvancedCryptoManager.decryptFilename(file.encryptedName, key, nameIv)
@@ -131,12 +126,17 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
         setFiles(filesWithDecryptedNames)
       } else {
+        throw new Error("Failed to load files")
       }
     } catch {
     } finally {
       setIsLoading(false)
     }
   }
+
+  useEffect(() => {
+    loadFiles()
+  }, [user.id])
 
   const handleLogout = () => {
     localStorage.clear()
@@ -211,8 +211,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
         await loadFiles()
         showAlert("Upload Successful", `"${file.name}" has been encrypted and uploaded successfully.`, "success")
       } else {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Upload failed")
+        throw new Error("Upload failed")
       }
     } catch {
       showAlert("Upload Failed", "Failed to upload file. Please try again.", "error")
@@ -231,7 +230,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.error || "Failed to fetch file")
+        throw new Error("Failed to fetch file")
       }
 
       const fileData = data.file
@@ -265,7 +264,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.error || "Failed to fetch file")
+        throw new Error("Failed to fetch file")
       }
 
       const fileData = data.file
@@ -323,9 +322,6 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
       const key = await AdvancedCryptoManager.deriveECDHKeyFromShared(shareKey.trim(), salt)
       const nameKey = await AdvancedCryptoManager.deriveECDHKeyFromShared(shareKey.trim(), nameSalt)
 
-      const rawKey = await crypto.subtle.exportKey("raw", key)
-      const keyBytes = new Uint8Array(rawKey)
-
       const { encryptedData, iv } = await AdvancedCryptoManager.encryptFileAdvanced(file, key)
 
       const { encryptedName, iv: nameIv } = await AdvancedCryptoManager.encryptFilename(file.name, nameKey)
@@ -368,7 +364,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
         await loadFiles()
         showAlert("Share Created", "Share link created successfully!", "success")
       } else {
-        throw new Error(data.error || "Failed to create share")
+        throw new Error("Failed to create share")
       }
     } catch {
       showAlert("Share Failed", "Failed to create share link.", "error")
@@ -387,8 +383,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
         await loadFiles()
         showAlert("Unshared Successfully", `"${file.decryptedName}" is no longer shared.`, "success")
       } else {
-        const data = await response.json()
-        throw new Error(data.error || "Failed to unshare file")
+        throw new Error("Failed to unshare file")
       }
     } catch {
       showAlert("Unshare Failed", "Failed to unshare file.", "error")
@@ -406,8 +401,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
         onDeleteClose()
         showAlert("File Deleted", "File has been permanently deleted.", "success")
       } else {
-        const data = await response.json()
-        throw new Error(data.error || "Delete failed")
+        throw new Error("Delete failed")
       }
     } catch {
       showAlert("Delete Failed", "Failed to delete file.", "error")
@@ -529,7 +523,11 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
         <Card>
           <CardHeader>
-            <h2 className="font-semibold text-lg">Your Files ({files.length})</h2>
+            <h2 className="font-semibold text-lg">
+              Your Files (
+              {files.length}
+              )
+            </h2>
           </CardHeader>
           <CardBody>
             {isLoading ? (
@@ -564,7 +562,9 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
                         <td className="px-4 py-3">
                           {file.isShared ? (
                             <Chip size="sm" color="success" variant="flat">
-                              Shared ({file.shareCount})
+                              Shared (
+                              {file.shareCount}
+                              )
                             </Chip>
                           ) : (
                             <Chip size="sm" color="default" variant="flat">
@@ -628,7 +628,14 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
           <ModalHeader>Delete File</ModalHeader>
           <ModalBody>
             <p>
-              Are you sure you want to delete <strong>"{selectedFile?.decryptedName}"</strong>?
+              Are you sure you want to delete
+              {" "}
+              <strong>
+                "
+                {selectedFile?.decryptedName}
+                "
+              </strong>
+              ?
             </p>
             <p className="text-default-600 text-sm">This action cannot be undone and will also remove any shared links.</p>
           </ModalBody>
@@ -647,7 +654,11 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
       <Modal isOpen={isShareOpen} onClose={onShareClose}>
         <ModalContent>
-          <ModalHeader>Share "{selectedFile?.decryptedName}"</ModalHeader>
+          <ModalHeader>
+            Share "
+            {selectedFile?.decryptedName}
+            "
+          </ModalHeader>
           <ModalBody>
             <p className="mb-4">
               {shareInfo.length > 0 && shareInfo[0].id === "new"

@@ -38,10 +38,6 @@ export default function SharePage() {
     type: "info" as "success" | "error" | "warning" | "info",
   })
 
-  useEffect(() => {
-    loadSharedFile()
-  }, [token])
-
   const showAlert = (title: string, message: string, type: "success" | "error" | "warning" | "info" = "info") => {
     setAlertConfig({ title, message, type })
     onAlertOpen()
@@ -63,6 +59,10 @@ export default function SharePage() {
       setIsLoading(false)
     }
   }
+
+  useEffect(() => {
+    loadSharedFile()
+  }, [token])
 
   const decryptFileName = async () => {
     if (!fileData || !shareKey.trim()) {
@@ -212,7 +212,9 @@ export default function SharePage() {
                 <div>
                   <p className="font-medium">{decryptedName || "[Enter share key to decrypt filename]"}</p>
                   <p className="text-default-600 text-sm">
-                    {formatFileSize(fileData?.originalSize || 0)} • Uploaded
+                    {formatFileSize(fileData?.originalSize || 0)}
+                    {" "}
+                    • Uploaded
                     {formatDate(fileData?.createdAt.toString() || "")}
                   </p>
                 </div>

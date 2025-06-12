@@ -56,6 +56,7 @@ export default antfu(
       "jsx-a11y/heading-has-content": "off",
       "style/multiline-ternary": "off",
       "style/arrow-parens": "off",
+      "jsx-a11y/label-has-associated-control": "off",
     },
   },
 )

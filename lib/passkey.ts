@@ -87,7 +87,6 @@ export class PasskeyManager {
     const challenge = crypto.getRandomValues(new Uint8Array(16)).buffer
 
     const input = "filekey_security_key_wallet_first"
-    const hashHex: string = keccak256(input)
     const buffer: ArrayBufferLike = (hexToArrayBuffer(keccak256(input), Uint8Array) as Uint8Array).buffer
 
     const credential = (await navigator.credentials.get({
@@ -115,14 +114,14 @@ export class PasskeyManager {
 }
 
 function hexStringToHexNumber(hex_str: string) {
-  if (new RegExp(/0x/i).test(hex_str.substring(0, 2))) {
+  if (/0x/i.test(hex_str.substring(0, 2))) {
     return hex_str.substring(2)
   } else {
     return hex_str
   }
 }
 
-function hexToArrayBuffer<T extends ArrayBufferView = Uint8Array>(hexStr: string, bufferType?: { new (array: number[]): T }): ArrayBuffer | T {
+function hexToArrayBuffer<T extends ArrayBufferView = Uint8Array>(hexStr: string, BufferType?: { new (array: number[]): T }): ArrayBuffer | T {
   const cleanedHex = hexStringToHexNumber(hexStr)
 
   const ret: number[] = []
@@ -132,5 +131,5 @@ function hexToArrayBuffer<T extends ArrayBufferView = Uint8Array>(hexStr: string
     ret.push(n)
   }
 
-  return bufferType ? new bufferType(ret) : new Uint8Array(ret).buffer
+  return BufferType ? new BufferType(ret) : new Uint8Array(ret).buffer
 }

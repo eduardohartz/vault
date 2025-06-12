@@ -12,7 +12,7 @@ import { KeyHelper } from "@/lib/key-helper"
 import { PasskeyManager } from "@/lib/passkey"
 
 type AuthPageProps = {
-  onAuthenticated: (user: { id: string; username: string; privateKey: any; publicKey: any; shareKey: string }) => void
+  onAuthenticated: (user: { id: string, username: string, privateKey: any, publicKey: any, shareKey: string }) => void
 }
 
 export default function AuthPage({ onAuthenticated }: AuthPageProps) {
@@ -34,6 +34,12 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
     type: "info" as "success" | "error" | "warning" | "info",
   })
 
+  const checkPasskeySupport = async () => {
+    const supported = await PasskeyManager.isSupported()
+    const prfSupported = await PasskeyManager.isPRFSupported()
+    setIsSupported(supported && prfSupported)
+  }
+
   useEffect(() => {
     checkPasskeySupport()
     setIsLoading(false)
@@ -42,12 +48,6 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
   const showAlert = (title: string, message: string, type: "success" | "error" | "warning" | "info" = "info") => {
     setAlertConfig({ title, message, type })
     onAlertOpen()
-  }
-
-  const checkPasskeySupport = async () => {
-    const supported = await PasskeyManager.isSupported()
-    const prfSupported = await PasskeyManager.isPRFSupported()
-    setIsSupported(supported && prfSupported)
   }
 
   const checkUsername = async () => {
@@ -290,7 +290,9 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
             <>
               <div className="bg-default-50 dark:bg-default-100 mb-4 p-3 rounded-lg">
                 <p className="text-sm">
-                  <strong>Username:</strong> {username}
+                  <strong>Username:</strong>
+                  {" "}
+                  {username}
                 </p>
                 <Button size="sm" variant="light" onPress={resetForm} className="mt-2">
                   Change Username

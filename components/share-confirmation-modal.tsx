@@ -56,7 +56,11 @@ export default function ShareConfirmationModal({ isOpen, onClose, onConfirm, fil
   return (
     <Modal isOpen={isOpen} onClose={onClose}>
       <ModalContent>
-        <ModalHeader>Share "{fileName}"</ModalHeader>
+        <ModalHeader>
+          Share "
+          {fileName}
+          "
+        </ModalHeader>
         <ModalBody>
           <p className="mb-4">Choose how long this share link should be valid:</p>
 
