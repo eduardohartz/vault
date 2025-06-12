@@ -19,8 +19,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       exists: !!existingUser,
       canRegister: !existingUser && userCount < maxUsers,
-      currentUserCount: userCount,
-      maxUsers,
     })
   } catch {
     return NextResponse.json({ error: "Failed to check username" }, { status: 500 })

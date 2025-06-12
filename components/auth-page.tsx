@@ -6,13 +6,13 @@ import { CheckCircle, Key, Moon, Shield, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useEffect, useState } from "react"
 import AlertModal from "@/components/alert-modal"
-import { AdvancedCryptoManager } from "@/lib/advanced-crypto"
+import { CryptoManager } from "@/lib/crypto-manager"
 import { BufferHelper } from "@/lib/buffer-helper"
 import { KeyHelper } from "@/lib/key-helper"
 import { PasskeyManager } from "@/lib/passkey"
 
 type AuthPageProps = {
-  onAuthenticated: (user: { id: string, username: string, privateKey: any, publicKey: any, shareKey: string }) => void
+  onAuthenticated: (user: { id: string; username: string; privateKey: any; publicKey: any; shareKey: string }) => void
 }
 
 export default function AuthPage({ onAuthenticated }: AuthPageProps) {
@@ -73,7 +73,7 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
         setHasCheckedUsername(true)
 
         if (!data.exists && !data.canRegister) {
-          showAlert("Registration Limit Reached", `Maximum number of users (${data.maxUsers}) reached. Cannot create new accounts.`, "error")
+          showAlert("Registration Error", `Cannot create new accounts.`, "error")
         }
       } else {
         showAlert("Error", data.error || "Failed to check username", "error")
@@ -118,11 +118,11 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
         throw new Error("Authenticated with different credential than expected")
       }
 
-      const prfBuff = await AdvancedCryptoManager.getPRFOutput(credential)
-      const HKDFKey = await AdvancedCryptoManager.generateHKDFKey(prfBuff)
-      const hkdfSeed = await AdvancedCryptoManager.generateNewSeed("", prfBuff, HKDFKey)
+      const prfBuff = await CryptoManager.getPRFOutput(credential)
+      const HKDFKey = await CryptoManager.generateHKDFKey(prfBuff)
+      const hkdfSeed = await CryptoManager.generateNewSeed("", prfBuff, HKDFKey)
 
-      const { privateKey, publicKey } = AdvancedCryptoManager.generateKeyPair(hkdfSeed)
+      const { privateKey, publicKey } = CryptoManager.generateKeyPair(hkdfSeed)
 
       const keys = await KeyHelper.convertKeys(privateKey, publicKey)
 
@@ -130,9 +130,9 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
         throw new Error("Failed to generate valid key pair")
       }
 
-      const keypair = await AdvancedCryptoManager.deriveECDHKey(keys.privateKey.key, keys.publicKey.key)
+      const keypair = await CryptoManager.deriveECDHKey(keys.privateKey.key, keys.publicKey.key)
 
-      const shareKey = await AdvancedCryptoManager.generateShareKey(keypair)
+      const shareKey = await CryptoManager.generateShareKey(keypair)
 
       const response = await fetch("/api/auth/register", {
         method: "POST",
@@ -173,19 +173,19 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
     try {
       const credential = await PasskeyManager.authenticate()
 
-      const prfBuff = await AdvancedCryptoManager.getPRFOutput(credential)
-      const HKDFKey = await AdvancedCryptoManager.generateHKDFKey(prfBuff)
-      const hkdfSeed = await AdvancedCryptoManager.generateNewSeed("", prfBuff, HKDFKey)
-      const { privateKey, publicKey } = AdvancedCryptoManager.generateKeyPair(hkdfSeed)
+      const prfBuff = await CryptoManager.getPRFOutput(credential)
+      const HKDFKey = await CryptoManager.generateHKDFKey(prfBuff)
+      const hkdfSeed = await CryptoManager.generateNewSeed("", prfBuff, HKDFKey)
+      const { privateKey, publicKey } = CryptoManager.generateKeyPair(hkdfSeed)
       const keys = await KeyHelper.convertKeys(privateKey, publicKey)
 
       if (!keys.publicKey.key || !keys.privateKey.key || !keys.publicKey.rawBuffer) {
         throw new Error("Failed to generate valid key pair")
       }
 
-      const keypair = await AdvancedCryptoManager.deriveECDHKey(keys.privateKey.key, keys.publicKey.key)
+      const keypair = await CryptoManager.deriveECDHKey(keys.privateKey.key, keys.publicKey.key)
 
-      const shareKey = await AdvancedCryptoManager.generateShareKey(keypair)
+      const shareKey = await CryptoManager.generateShareKey(keypair)
 
       const response = await fetch("/api/auth/login", {
         method: "POST",
@@ -290,9 +290,7 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
             <>
               <div className="bg-default-50 dark:bg-default-100 mb-4 p-3 rounded-lg">
                 <p className="text-sm">
-                  <strong>Username:</strong>
-                  {" "}
-                  {username}
+                  <strong>Username:</strong> {username}
                 </p>
                 <Button size="sm" variant="light" onPress={resetForm} className="mt-2">
                   Change Username

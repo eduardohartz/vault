@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db"
 
 const ENCRYPTED_FILES_DIR = process.env.ENCRYPTED_FILES_DIR || "./encrypted_files"
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const formData = await request.formData()
     const encryptedData = formData.get("encryptedData") as string
@@ -25,13 +25,20 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     const file = await prisma.file.findFirst({
       where: {
-        id: params.id,
+        id: (await params).id,
         userId,
+      },
+      include: {
+        SharedFile: true,
       },
     })
 
     if (!file) {
       return NextResponse.json({ error: "File not found or access denied" }, { status: 404 })
+    }
+
+    if (file.SharedFile) {
+      return NextResponse.json({ error: "File already shared" }, { status: 400 })
     }
 
     const shareToken = crypto.randomUUID()
@@ -72,7 +79,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   }
 }
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get("userId")
@@ -81,12 +88,11 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: "User ID required" }, { status: 400 })
     }
 
-    const shares = await prisma.sharedFile.findMany({
+    const share = await prisma.sharedFile.findUnique({
       where: {
-        fileId: params.id,
+        fileId: (await params).id,
         sharedById: userId,
       },
-      orderBy: { createdAt: "desc" },
       select: {
         id: true,
         shareToken: true,
@@ -100,13 +106,13 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       },
     })
 
-    return NextResponse.json({ shares })
+    return NextResponse.json(share)
   } catch {
-    return NextResponse.json({ error: "Failed to fetch shares" }, { status: 500 })
+    return NextResponse.json({ error: "Failed to fetch share" }, { status: 500 })
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { userId } = await request.json()
 
@@ -114,9 +120,9 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       return NextResponse.json({ error: "User ID required" }, { status: 400 })
     }
 
-    const file = await prisma.file.findFirst({
+    const file = await prisma.file.findUnique({
       where: {
-        id: params.id,
+        id: (await params).id,
         userId,
       },
     })
@@ -125,32 +131,30 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       return NextResponse.json({ error: "File not found or access denied" }, { status: 404 })
     }
 
-    const shares = await prisma.sharedFile.findMany({
+    const share = await prisma.sharedFile.findUnique({
       where: {
-        fileId: params.id,
+        fileId: (await params).id,
         sharedById: userId,
       },
     })
 
-    for (const share of shares) {
-      if (share.sharedFilePath) {
-        try {
-          const sharedFilePath = path.join(ENCRYPTED_FILES_DIR, share.sharedFilePath)
-          await fs.rm(sharedFilePath)
-        } catch {}
-      }
+    if (share && share.sharedFilePath) {
+      try {
+        const sharedFilePath = path.join(ENCRYPTED_FILES_DIR, share.sharedFilePath)
+        await fs.rm(sharedFilePath)
+      } catch {}
     }
 
-    const deleteResult = await prisma.sharedFile.deleteMany({
+    await prisma.sharedFile.delete({
       where: {
-        fileId: params.id,
+        fileId: (await params).id,
         sharedById: userId,
       },
     })
 
     return NextResponse.json({
       success: true,
-      message: `Removed ${deleteResult.count} share(s)`,
+      message: `Removed share`,
     })
   } catch {
     return NextResponse.json({ error: "Failed to unshare file" }, { status: 500 })

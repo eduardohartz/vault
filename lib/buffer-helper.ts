@@ -1,6 +1,6 @@
-import { AdvancedCryptoManager } from "./advanced-crypto"
+import { CryptoManager } from "./crypto-manager"
 
-export type Point = { x: bigint, y: bigint }
+export type Point = { x: bigint; y: bigint }
 
 export class BufferHelper {
   static convertBufferType<T extends ArrayBufferView>(sourceBuff: ArrayBufferView, OutputType: new (buffer: ArrayBuffer) => T): T {
@@ -46,8 +46,8 @@ export class BufferHelper {
 
     for (let i = 0; i < buffer.length; ++i) {
       const byte = buffer[i]
-      output[2 * i] = table[(byte >> 4) & 0x0F]
-      output[2 * i + 1] = table[byte & 0x0F]
+      output[2 * i] = table[(byte >> 4) & 0x0f]
+      output[2 * i + 1] = table[byte & 0x0f]
     }
 
     return output.join("")
@@ -113,7 +113,7 @@ export class BufferHelper {
       return true
     }
     const { x, y } = point
-    const { P, A, B } = AdvancedCryptoManager
+    const { P, A, B } = CryptoManager
 
     const left = this.modMul(y, y, P)
     const x2 = this.modMul(x, x, P)
@@ -125,7 +125,7 @@ export class BufferHelper {
   }
 
   static pointAdd(P1: Point | null, P2: Point | null): Point | null {
-    const { P } = AdvancedCryptoManager
+    const { P } = CryptoManager
 
     if (P1 === null) {
       return P2
@@ -158,7 +158,7 @@ export class BufferHelper {
       return null
     }
     const { x, y } = P
-    const { A, P: mod } = AdvancedCryptoManager
+    const { A, P: mod } = CryptoManager
 
     const slope = this.modMul(this.modAdd(this.modMul(BigInt(3), this.modMul(x, x, mod), mod), A, mod), this.modInv(this.modMul(BigInt(2), y, mod), mod), mod)
 

@@ -1,5 +1,5 @@
 import type { Point } from "./buffer-helper"
-import { AdvancedCryptoManager } from "./advanced-crypto"
+import { CryptoManager } from "./crypto-manager"
 import { BufferHelper } from "./buffer-helper"
 
 export class KeyHelper {
@@ -7,20 +7,20 @@ export class KeyHelper {
     privateKey: bigint,
     publicKey: Point | null,
   ): Promise<{
-      privateKey: {
-        success: boolean
-        key?: CryptoKey
-        pkcs8Buffer?: ArrayBuffer
-        error?: string
-        warning?: string
-      }
-      publicKey: {
-        success: boolean
-        key?: CryptoKey
-        rawBuffer?: ArrayBuffer
-        error?: string
-      }
-    }> {
+    privateKey: {
+      success: boolean
+      key?: CryptoKey
+      pkcs8Buffer?: ArrayBuffer
+      error?: string
+      warning?: string
+    }
+    publicKey: {
+      success: boolean
+      key?: CryptoKey
+      rawBuffer?: ArrayBuffer
+      error?: string
+    }
+  }> {
     return new Promise((resolve) => {
       if (!publicKey) {
         return resolve({
@@ -46,7 +46,7 @@ export class KeyHelper {
     })
   }
 
-  static convertToPKCS8(privateKey: bigint, inner_cb: (result: { success: boolean, key?: CryptoKey, pkcs8Buffer?: ArrayBuffer, error?: string, warning?: string }) => void): void {
+  static convertToPKCS8(privateKey: bigint, inner_cb: (result: { success: boolean; key?: CryptoKey; pkcs8Buffer?: ArrayBuffer; error?: string; warning?: string }) => void): void {
     const isSafari = /^(?:(?!chrome|android).)*safari/i.test(navigator.userAgent)
 
     if (isSafari) {
@@ -56,25 +56,25 @@ export class KeyHelper {
     }
   }
 
-  static convertStandardPKCS8(privateKey: bigint, inner_cb: (result: { success: boolean, key?: CryptoKey, pkcs8Buffer?: ArrayBuffer, error?: string }) => void): void {
+  static convertStandardPKCS8(privateKey: bigint, inner_cb: (result: { success: boolean; key?: CryptoKey; pkcs8Buffer?: ArrayBuffer; error?: string }) => void): void {
     const calculateLength = (length: number): Uint8Array => {
       if (length < 128) {
         return new Uint8Array([length])
       } else if (length < 256) {
         return new Uint8Array([0x81, length])
       }
-      return new Uint8Array([0x82, (length >> 8) & 0xFF, length & 0xFF])
+      return new Uint8Array([0x82, (length >> 8) & 0xff, length & 0xff])
     }
 
     const privateKeyBytes = new Uint8Array(66)
     let temp = privateKey
     for (let i = privateKeyBytes.length - 1; i >= 0; i--) {
-      privateKeyBytes[i] = Number(temp & BigInt(0xFF))
+      privateKeyBytes[i] = Number(temp & BigInt(0xff))
       temp = temp >> BigInt(8)
     }
 
-    const curveOid = new Uint8Array([0x06, 0x05, 0x2B, 0x81, 0x04, 0x00, 0x23])
-    const ecPublicKeyOid = new Uint8Array([0x06, 0x07, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01])
+    const curveOid = new Uint8Array([0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x23])
+    const ecPublicKeyOid = new Uint8Array([0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01])
     const version = new Uint8Array([0x02, 0x01, 0x00])
 
     const algorithmSequenceContent = new Uint8Array([...ecPublicKeyOid, ...curveOid])
@@ -82,7 +82,7 @@ export class KeyHelper {
     const algorithmIdentifier = new Uint8Array([0x30, ...algoIdLength, ...algorithmSequenceContent])
 
     const privateKeyOctet = new Uint8Array([0x04, 0x42, ...privateKeyBytes])
-    const parameters = new Uint8Array([0xA0, 0x07, ...curveOid])
+    const parameters = new Uint8Array([0xa0, 0x07, ...curveOid])
     const ecKeySequenceContent = new Uint8Array([0x02, 0x01, 0x01, ...privateKeyOctet, ...parameters])
     const ecKeyLength = calculateLength(ecKeySequenceContent.length)
     const ecPrivateKey = new Uint8Array([0x30, ...ecKeyLength, ...ecKeySequenceContent])
@@ -108,7 +108,7 @@ export class KeyHelper {
     }
   }
 
-  static convertSafariPKCS8Deterministic(privateKey: bigint, inner_cb: (result: { success: boolean, key?: CryptoKey, pkcs8Buffer?: ArrayBuffer, error?: string, warning?: string }) => void): void {
+  static convertSafariPKCS8Deterministic(privateKey: bigint, inner_cb: (result: { success: boolean; key?: CryptoKey; pkcs8Buffer?: ArrayBuffer; error?: string; warning?: string }) => void): void {
     try {
       crypto.subtle
         .generateKey({ name: "ECDH", namedCurve: "P-521" }, true, ["deriveKey", "deriveBits"])
@@ -121,13 +121,13 @@ export class KeyHelper {
               const privateKeyBytes = new Uint8Array(66)
               let temp = privateKey
               for (let i = privateKeyBytes.length - 1; i >= 0; i--) {
-                privateKeyBytes[i] = Number(temp & BigInt(0xFF))
+                privateKeyBytes[i] = Number(temp & BigInt(0xff))
                 temp = temp >> BigInt(8)
               }
 
               const publicKey = BufferHelper.scalarMul(privateKey, {
-                x: AdvancedCryptoManager.GX,
-                y: AdvancedCryptoManager.GY,
+                x: CryptoManager.GX,
+                y: CryptoManager.GY,
               })
 
               if (!publicKey) {
@@ -137,14 +137,14 @@ export class KeyHelper {
               const xBytes = new Uint8Array(66)
               let tempX = publicKey.x
               for (let i = xBytes.length - 1; i >= 0; i--) {
-                xBytes[i] = Number(tempX & BigInt(0xFF))
+                xBytes[i] = Number(tempX & BigInt(0xff))
                 tempX = tempX >> BigInt(8)
               }
 
               const yBytes = new Uint8Array(66)
               let tempY = publicKey.y
               for (let i = yBytes.length - 1; i >= 0; i--) {
-                yBytes[i] = Number(tempY & BigInt(0xFF))
+                yBytes[i] = Number(tempY & BigInt(0xff))
                 tempY = tempY >> BigInt(8)
               }
 
@@ -211,7 +211,7 @@ export class KeyHelper {
 
   static findAndReplacePublicKey(template: Uint8Array, newKey: Uint8Array): boolean {
     for (let i = 0; i < template.length - 3; i++) {
-      if (template[i] === 0xA1) {
+      if (template[i] === 0xa1) {
         let j = i + 1
         while (j < template.length && template[j] !== 0x03) {
           j++
@@ -241,18 +241,18 @@ export class KeyHelper {
     return false
   }
 
-  static convertPublicKeyToRaw(publicKey: { x: bigint, y: bigint }, inner_cb: (result: { success: boolean, key?: CryptoKey, rawBuffer?: ArrayBuffer, error?: string }) => void): void {
+  static convertPublicKeyToRaw(publicKey: { x: bigint; y: bigint }, inner_cb: (result: { success: boolean; key?: CryptoKey; rawBuffer?: ArrayBuffer; error?: string }) => void): void {
     const xBytes = new Uint8Array(66)
     let tempX = publicKey.x
     for (let i = xBytes.length - 1; i >= 0; i--) {
-      xBytes[i] = Number(tempX & BigInt(0xFF))
+      xBytes[i] = Number(tempX & BigInt(0xff))
       tempX = tempX >> BigInt(8)
     }
 
     const yBytes = new Uint8Array(66)
     let tempY = publicKey.y
     for (let i = yBytes.length - 1; i >= 0; i--) {
-      yBytes[i] = Number(tempY & BigInt(0xFF))
+      yBytes[i] = Number(tempY & BigInt(0xff))
       tempY = tempY >> BigInt(8)
     }
 

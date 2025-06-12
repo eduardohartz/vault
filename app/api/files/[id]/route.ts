@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db"
 
 const ENCRYPTED_FILES_DIR = process.env.ENCRYPTED_FILES_DIR || "./encrypted_files"
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get("userId")
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
     const fileRecord = await prisma.file.findFirst({
       where: {
-        id: params.id,
+        id: (await params).id,
         userId,
       },
     })
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get("userId")
@@ -52,7 +52,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
     const fileRecord = await prisma.file.findFirst({
       where: {
-        id: params.id,
+        id: (await params).id,
         userId,
       },
     })
@@ -68,8 +68,8 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       console.error("Failed to delete file from disk:", error)
     }
 
-    const shared = await prisma.sharedFile.findFirst({
-      where: { fileId: params.id },
+    const shared = await prisma.sharedFile.findUnique({
+      where: { fileId: (await params).id },
     })
 
     if (shared) {
@@ -86,7 +86,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     }
 
     await prisma.file.delete({
-      where: { id: params.id },
+      where: { id: (await params).id },
     })
 
     return NextResponse.json({ success: true })

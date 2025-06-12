@@ -5,7 +5,7 @@ import { AlertTriangle, Download, FileIcon, Key, Shield } from "lucide-react"
 import { useParams } from "next/navigation"
 import { useEffect, useState } from "react"
 import AlertModal from "@/components/alert-modal"
-import { AdvancedCryptoManager } from "@/lib/advanced-crypto"
+import { CryptoManager } from "@/lib/crypto-manager"
 
 type SharedFileData = {
   id: string
@@ -75,9 +75,9 @@ export default function SharePage() {
 
       const nameSalt = Uint8Array.from(atob(fileData.nameSalt), (c) => c.charCodeAt(0))
       const nameIv = Uint8Array.from(atob(fileData.nameIv), (c) => c.charCodeAt(0))
-      const nameKey = await AdvancedCryptoManager.deriveECDHKeyFromShared(shareKey.trim(), nameSalt)
+      const nameKey = await CryptoManager.deriveECDHKeyFromShared(shareKey.trim(), nameSalt)
 
-      const name = await AdvancedCryptoManager.decryptFilename(fileData.encryptedName, nameKey, nameIv)
+      const name = await CryptoManager.decryptFilename(fileData.encryptedName, nameKey, nameIv)
 
       setDecryptedName(name)
       showAlert("Success", "Filename decrypted successfully!", "success")
@@ -101,17 +101,17 @@ export default function SharePage() {
       const iv = Uint8Array.from(atob(fileData.iv), (c) => c.charCodeAt(0))
       const salt = Uint8Array.from(atob(fileData.salt), (c) => c.charCodeAt(0))
 
-      const fileKey = await AdvancedCryptoManager.deriveECDHKeyFromShared(shareKey.trim(), salt)
+      const fileKey = await CryptoManager.deriveECDHKeyFromShared(shareKey.trim(), salt)
 
-      const decryptedData = await AdvancedCryptoManager.decryptFileAdvanced(encryptedData.buffer, fileKey, iv)
+      const decryptedData = await CryptoManager.decryptFile(encryptedData.buffer, fileKey, iv)
 
       let fileName = decryptedName
       if (!fileName) {
         try {
           const nameSalt = Uint8Array.from(atob(fileData.nameSalt), (c) => c.charCodeAt(0))
           const nameIv = Uint8Array.from(atob(fileData.nameIv), (c) => c.charCodeAt(0))
-          const nameKey = await AdvancedCryptoManager.deriveECDHKeyFromShared(shareKey.trim(), nameSalt)
-          fileName = await AdvancedCryptoManager.decryptFilename(fileData.encryptedName, nameKey, nameIv)
+          const nameKey = await CryptoManager.deriveECDHKeyFromShared(shareKey.trim(), nameSalt)
+          fileName = await CryptoManager.decryptFilename(fileData.encryptedName, nameKey, nameIv)
           setDecryptedName(fileName)
         } catch {
           fileName = "shared-file"
@@ -212,9 +212,7 @@ export default function SharePage() {
                 <div>
                   <p className="font-medium">{decryptedName || "[Enter share key to decrypt filename]"}</p>
                   <p className="text-default-600 text-sm">
-                    {formatFileSize(fileData?.originalSize || 0)}
-                    {" "}
-                    • Uploaded
+                    {formatFileSize(fileData?.originalSize || 0)} • Uploaded
                     {formatDate(fileData?.createdAt.toString() || "")}
                   </p>
                 </div>

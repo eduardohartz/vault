@@ -31,10 +31,9 @@ model File {
   nameIv        String
   uploadedAt    DateTime @default(now())
 
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  sharedFiles SharedFile[]
+  userId     String
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  SharedFile SharedFile?
 
   @@map("files")
 }
@@ -52,7 +51,7 @@ model SharedFile {
   nameIv         String
   originalSize   Int
 
-  fileId String
+  fileId String @unique
   file   File   @relation(fields: [fileId], references: [id], onDelete: Cascade)
 
   sharedById String

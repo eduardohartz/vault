@@ -2,7 +2,7 @@ import type { Point } from "./buffer-helper"
 import { BufferHelper } from "./buffer-helper"
 import { KeccakHelper } from "./keccak-helper"
 
-export class AdvancedCryptoManager {
+export class CryptoManager {
   private static readonly HKDF_INFO = new TextEncoder().encode("FileManager-HKDF-Info-v1")
   private static readonly SHARE_KEY_INFO = new TextEncoder().encode("FileManager-ShareKey-v1")
   private static readonly SHARE_SALT = "FileManager-ShareSalt-v1"
@@ -149,13 +149,13 @@ export class AdvancedCryptoManager {
   }
 
   // Encrypt file with derived key
-  static async encryptFileAdvanced(
-    file: File | ArrayBuffer,
+  static async encryptFile(
+    file: File,
     encryptionKey: CryptoKey,
   ): Promise<{
-      encryptedData: ArrayBuffer
-      iv: Uint8Array
-    }> {
+    encryptedData: ArrayBuffer
+    iv: Uint8Array
+  }> {
     const iv = crypto.getRandomValues(new Uint8Array(12))
     const fileBuffer = file instanceof File ? await file.arrayBuffer() : file
 
@@ -165,7 +165,7 @@ export class AdvancedCryptoManager {
   }
 
   // Decrypt file with derived key
-  static async decryptFileAdvanced(encryptedData: ArrayBuffer, encryptionKey: CryptoKey, iv: Uint8Array): Promise<ArrayBuffer> {
+  static async decryptFile(encryptedData: ArrayBuffer, encryptionKey: CryptoKey, iv: Uint8Array): Promise<ArrayBuffer> {
     return crypto.subtle.decrypt({ name: "AES-GCM", iv }, encryptionKey, encryptedData)
   }
 
@@ -174,9 +174,9 @@ export class AdvancedCryptoManager {
     filename: string,
     key: CryptoKey,
   ): Promise<{
-      encryptedName: string
-      iv: Uint8Array
-    }> {
+    encryptedName: string
+    iv: Uint8Array
+  }> {
     const iv = crypto.getRandomValues(new Uint8Array(12))
     const nameBuffer = new TextEncoder().encode(filename)
 

@@ -27,7 +27,7 @@ import { useTheme } from "next-themes"
 import { useEffect, useRef, useState } from "react"
 import AlertModal from "@/components/alert-modal"
 import ShareConfirmationModal from "@/components/share-confirmation-modal"
-import { AdvancedCryptoManager } from "@/lib/advanced-crypto"
+import { CryptoManager } from "@/lib/crypto-manager"
 
 type FileManagerProps = {
   user: {
@@ -53,7 +53,6 @@ type FileItem = {
   userId: string
   decryptedName?: string
   isShared?: boolean
-  shareCount?: number
 }
 
 type ShareInfo = {
@@ -70,7 +69,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null)
   const [shareUrl, setShareUrl] = useState("")
-  const [shareInfo, setShareInfo] = useState<ShareInfo[]>([])
+  const [shareInfo, setShareInfo] = useState<ShareInfo | null>(null)
   const [showShareKey, setShowShareKey] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { theme, setTheme } = useTheme()
@@ -100,25 +99,22 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
           data.files.map(async (file: FileItem) => {
             try {
               const nameIv = Uint8Array.from(atob(file.nameIv), (c) => c.charCodeAt(0))
-              const key = await AdvancedCryptoManager.deriveECDHKey(user.privateKey.key, user.publicKey.key)
-              const decryptedName = await AdvancedCryptoManager.decryptFilename(file.encryptedName, key, nameIv)
+              const key = await CryptoManager.deriveECDHKey(user.privateKey.key, user.publicKey.key)
+              const decryptedName = await CryptoManager.decryptFilename(file.encryptedName, key, nameIv)
 
               const shareResponse = await fetch(`/api/files/${file.id}/share?userId=${user.id}`)
               const shareData = await shareResponse.json()
-              const shareCount = shareResponse.ok ? shareData.shares.length : 0
 
               return {
                 ...file,
                 decryptedName,
-                isShared: shareCount > 0,
-                shareCount,
+                isShared: shareData,
               }
             } catch {
               return {
                 ...file,
                 decryptedName: "[Decryption Failed]",
                 isShared: false,
-                shareCount: 0,
               }
             }
           }),
@@ -145,7 +141,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
     setFiles([])
     setSelectedFile(null)
     setShareUrl("")
-    setShareInfo([])
+    setShareInfo(null)
     setShowShareKey(false)
 
     if (fileInputRef.current) {
@@ -172,15 +168,15 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
       setUploadProgress(10)
 
-      const key = await AdvancedCryptoManager.deriveECDHKey(user.privateKey.key, user.publicKey.key)
+      const key = await CryptoManager.deriveECDHKey(user.privateKey.key, user.publicKey.key)
 
       setUploadProgress(25)
 
-      const { encryptedData, iv } = await AdvancedCryptoManager.encryptFileAdvanced(file, key)
+      const { encryptedData, iv } = await CryptoManager.encryptFile(file, key)
 
       setUploadProgress(50)
 
-      const { encryptedName, iv: nameIv } = await AdvancedCryptoManager.encryptFilename(file.name, key)
+      const { encryptedName, iv: nameIv } = await CryptoManager.encryptFilename(file.name, key)
 
       setUploadProgress(75)
 
@@ -213,7 +209,8 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
       } else {
         throw new Error("Upload failed")
       }
-    } catch {
+    } catch (e) {
+      console.error("File upload error:", e)
       showAlert("Upload Failed", "Failed to upload file. Please try again.", "error")
     } finally {
       setIsUploading(false)
@@ -238,9 +235,9 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
       const encryptedData = Uint8Array.from(atob(fileData.encryptedData), (c) => c.charCodeAt(0))
       const iv = Uint8Array.from(atob(fileData.iv), (c) => c.charCodeAt(0))
 
-      const key = await AdvancedCryptoManager.deriveECDHKey(user.privateKey.key, user.publicKey.key)
+      const key = await CryptoManager.deriveECDHKey(user.privateKey.key, user.publicKey.key)
 
-      const decryptedData = await AdvancedCryptoManager.decryptFileAdvanced(encryptedData.buffer, key, iv)
+      const decryptedData = await CryptoManager.decryptFile(encryptedData.buffer, key, iv)
 
       const blob = new Blob([decryptedData])
       const url = URL.createObjectURL(blob)
@@ -271,8 +268,8 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
       const encryptedData = Uint8Array.from(atob(fileData.encryptedData), (c) => c.charCodeAt(0))
       const iv = Uint8Array.from(atob(fileData.iv), (c) => c.charCodeAt(0))
 
-      const key = await AdvancedCryptoManager.deriveECDHKey(user.privateKey.key, user.publicKey.key)
-      const decryptedData = await AdvancedCryptoManager.decryptFileAdvanced(encryptedData.buffer, key, iv)
+      const key = await CryptoManager.deriveECDHKey(user.privateKey.key, user.publicKey.key)
+      const decryptedData = await CryptoManager.decryptFile(encryptedData.buffer, key, iv)
 
       const decryptedFile = new File([decryptedData], file.decryptedName || "download", { type: "application/octet-stream" })
       return decryptedFile
@@ -289,8 +286,8 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
         if (response.ok && data.shares.length > 0) {
           const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
-          setShareUrl(`${baseUrl}/share/${data.shares[0].shareToken}`)
-          setShareInfo(data.shares)
+          setShareUrl(`${baseUrl}/share/${data.shareToken}`)
+          setShareInfo(data)
           setSelectedFile(file)
           onShareOpen()
         }
@@ -319,12 +316,12 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
       const salt = crypto.getRandomValues(new Uint8Array(16))
       const nameSalt = crypto.getRandomValues(new Uint8Array(16))
-      const key = await AdvancedCryptoManager.deriveECDHKeyFromShared(shareKey.trim(), salt)
-      const nameKey = await AdvancedCryptoManager.deriveECDHKeyFromShared(shareKey.trim(), nameSalt)
+      const key = await CryptoManager.deriveECDHKeyFromShared(shareKey.trim(), salt)
+      const nameKey = await CryptoManager.deriveECDHKeyFromShared(shareKey.trim(), nameSalt)
 
-      const { encryptedData, iv } = await AdvancedCryptoManager.encryptFileAdvanced(file, key)
+      const { encryptedData, iv } = await CryptoManager.encryptFile(file, key)
 
-      const { encryptedName, iv: nameIv } = await AdvancedCryptoManager.encryptFilename(file.name, nameKey)
+      const { encryptedName, iv: nameIv } = await CryptoManager.encryptFilename(file.name, nameKey)
 
       const encryptedBase64 = btoa(String.fromCharCode(...new Uint8Array(encryptedData)))
       const ivBase64 = btoa(String.fromCharCode(...iv))
@@ -352,14 +349,12 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
       if (response.ok) {
         setShareUrl(data.shareUrl)
-        setShareInfo([
-          {
-            id: "new",
-            shareToken: data.shareToken,
-            createdAt: new Date().toISOString(),
-            expiresAt,
-          },
-        ])
+        setShareInfo({
+          id: "new",
+          shareToken: data.shareToken,
+          createdAt: new Date().toISOString(),
+          expiresAt,
+        })
         onShareOpen()
         await loadFiles()
         showAlert("Share Created", "Share link created successfully!", "success")
@@ -517,17 +512,13 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
               )}
             </div>
 
-            <p className="mt-2 text-default-600 text-sm">🔒 Files are encrypted with your private key derived from your passkey</p>
+            <p className="mt-2 text-default-600 text-sm">🔒 Files are end-to-end encrypted</p>
           </CardBody>
         </Card>
 
         <Card>
           <CardHeader>
-            <h2 className="font-semibold text-lg">
-              Your Files (
-              {files.length}
-              )
-            </h2>
+            <h2 className="font-semibold text-lg">Your Files ({files.length})</h2>
           </CardHeader>
           <CardBody>
             {isLoading ? (
@@ -562,9 +553,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
                         <td className="px-4 py-3">
                           {file.isShared ? (
                             <Chip size="sm" color="success" variant="flat">
-                              Shared (
-                              {file.shareCount}
-                              )
+                              Shared
                             </Chip>
                           ) : (
                             <Chip size="sm" color="default" variant="flat">
@@ -628,14 +617,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
           <ModalHeader>Delete File</ModalHeader>
           <ModalBody>
             <p>
-              Are you sure you want to delete
-              {" "}
-              <strong>
-                "
-                {selectedFile?.decryptedName}
-                "
-              </strong>
-              ?
+              Are you sure you want to delete <strong>"{selectedFile?.decryptedName}"</strong>?
             </p>
             <p className="text-default-600 text-sm">This action cannot be undone and will also remove any shared links.</p>
           </ModalBody>
@@ -654,14 +636,10 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
       <Modal isOpen={isShareOpen} onClose={onShareClose}>
         <ModalContent>
-          <ModalHeader>
-            Share "
-            {selectedFile?.decryptedName}
-            "
-          </ModalHeader>
+          <ModalHeader>Share "{selectedFile?.decryptedName}"</ModalHeader>
           <ModalBody>
             <p className="mb-4">
-              {shareInfo.length > 0 && shareInfo[0].id === "new"
+              {shareInfo && shareInfo.id === "new"
                 ? "Your file has been shared! Send both the link and your share key to the recipient."
                 : "This file is already shared. You can copy the existing share link below."}
             </p>
@@ -692,17 +670,17 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
               <p className="text-warning text-sm">⚠️ Both the link AND your share key are required to decrypt the file. Make sure to send both to the recipient through secure channels.</p>
             </div>
 
-            {shareInfo.length > 0 && (
+            {shareInfo && (
               <div className="mt-4">
                 <p className="mb-2 font-medium text-sm">Share Details:</p>
                 <div className="text-default-600 text-xs">
                   <p>
                     Created:
-                    {formatDate(shareInfo[0].createdAt)}
+                    {formatDate(shareInfo.createdAt)}
                   </p>
                   <p>
                     Expires:
-                    {shareInfo[0].expiresAt ? formatDate(shareInfo[0].expiresAt) : "Never"}
+                    {shareInfo.expiresAt ? formatDate(shareInfo.expiresAt) : "Never"}
                   </p>
                 </div>
               </div>
