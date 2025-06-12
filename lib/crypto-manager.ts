@@ -3,9 +3,8 @@ import { BufferHelper } from "./buffer-helper"
 import { KeccakHelper } from "./keccak-helper"
 
 export class CryptoManager {
-  private static readonly HKDF_INFO = new TextEncoder().encode("FileManager-HKDF-Info-v1")
-  private static readonly SHARE_KEY_INFO = new TextEncoder().encode("FileManager-ShareKey-v1")
-  private static readonly SHARE_SALT = "FileManager-ShareSalt-v1"
+  private static readonly HKDF_INFO = new TextEncoder().encode("EduardoVaultHKDFVerySecretInfo")
+  private static readonly SHARE_KEY_INFO = new TextEncoder().encode("EduardoVaultShareKeyVerySecretInfo")
 
   static readonly P = BigInt("0x1FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF")
   static readonly A = BigInt("0x1FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC")

@@ -2,7 +2,7 @@ import { keccak256 } from "js-sha3"
 
 export class PasskeyManager {
   private static rpId = typeof window !== "undefined" ? window.location.hostname : "localhost"
-  private static rpName = "Vault"
+  private static rpName = "EduardosVault"
 
   static async isSupported(): Promise<boolean> {
     if (typeof window === "undefined") {
@@ -86,7 +86,7 @@ export class PasskeyManager {
 
     const challenge = crypto.getRandomValues(new Uint8Array(16)).buffer
 
-    const input = "filekey_security_key_wallet_first"
+    const input = "very_secret_input_for_prf_abcdef1234567890"
     const buffer: ArrayBufferLike = (hexToArrayBuffer(keccak256(input), Uint8Array) as Uint8Array).buffer
 
     const credential = (await navigator.credentials.get({

@@ -12,7 +12,7 @@ import { KeyHelper } from "@/lib/key-helper"
 import { PasskeyManager } from "@/lib/passkey-manager"
 
 type AuthPageProps = {
-  onAuthenticated: (user: { id: string, username: string, privateKey: any, publicKey: any, shareKey: string }) => void
+  onAuthenticated: (user: { id: string; username: string; privateKey: any; publicKey: any; shareKey: string }) => void
 }
 
 export default function AuthPage({ onAuthenticated }: AuthPageProps) {
@@ -259,11 +259,14 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
 
       <Card className="w-full max-w-md">
         <CardHeader className="pb-2 text-center">
-          <div className="flex justify-center items-center gap-1">
+          <div className="flex justify-center items-center gap-2">
             <div className="bg-primary/10 p-3 rounded-full">
               <Shield className="w-8 h-8 text-primary" />
             </div>
-            <h1 className="font-bold text-xl">Vault</h1>
+            <div className="flex flex-col items-start">
+              <h1 className="font-bold text-2xl">Eduardo's Vault</h1>
+              <h2 className="text-default-500 text-sm">Login or Register</h2>
+            </div>
           </div>
         </CardHeader>
 
@@ -276,7 +279,7 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
                   placeholder="Enter your username"
                   value={username}
                   onChange={(e: { target: { value: SetStateAction<string> } }) => setUsername(e.target.value)}
-                  startContent={<Key className="w-4 h-4 text-default-400" />}
+                  startContent={<Key className="w-4 h-5 text-default-400" />}
                   isDisabled={isLoading}
                   onKeyDown={(e: { key: string }) => e.key === "Enter" && checkUsername()}
                 />
@@ -288,13 +291,11 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
             </>
           ) : (
             <>
-              <div className="bg-default-50 dark:bg-default-100 mb-4 p-3 rounded-lg">
+              <div className="flex justify-between items-center bg-default-50 dark:bg-default-100 mb-4 p-3 rounded-lg">
                 <p className="text-sm">
-                  <strong>Username:</strong>
-                  {" "}
-                  {username}
+                  <strong>Username:</strong> {username}
                 </p>
-                <Button size="sm" variant="light" onPress={resetForm} className="mt-2">
+                <Button size="sm" variant="ghost" onPress={resetForm} className="">
                   Change Username
                 </Button>
               </div>
