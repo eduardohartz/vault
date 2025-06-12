@@ -1,21 +1,17 @@
-import type React from "react"
 import type { Metadata } from "next"
+import type React from "react"
 import { Inter } from "next/font/google"
-import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
+import "./globals.css"
 
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "Encrypted File Manager",
-  description: "Secure file storage with client-side encryption",
+  title: "Vault",
+  description: "Vault storage for files",
 }
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>

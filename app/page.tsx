@@ -9,15 +9,11 @@ export default function Home() {
     id: string
     username: string
     shareKey: string
-    privateKeyRaw: Uint8Array
+    privateKey: any
+    publicKey: any
   } | null>(null)
 
-  const handleAuthenticated = (authenticatedUser: {
-    id: string
-    username: string
-    shareKey: string
-    privateKeyRaw: Uint8Array
-  }) => {
+  const handleAuthenticated = (authenticatedUser: { id: string, username: string, shareKey: string, privateKey: any, publicKey: any }) => {
     setUser(authenticatedUser)
   }
 

@@ -1,11 +1,10 @@
+import { existsSync } from "node:fs"
+import { mkdir, writeFile } from "node:fs/promises"
+import { join } from "node:path"
 import { type NextRequest, NextResponse } from "next/server"
-import { writeFile, mkdir } from "fs/promises"
-import { join } from "path"
-import { existsSync } from "fs"
 import { prisma } from "@/lib/db"
 
-const ENCRYPTED_FILES_DIR =
-  process.env.ENCRYPTED_FILES_DIR || "./encrypted_files"
+const ENCRYPTED_FILES_DIR = process.env.ENCRYPTED_FILES_DIR || "./encrypted_files"
 
 async function ensureDirectoryExists() {
   if (!existsSync(ENCRYPTED_FILES_DIR)) {
@@ -28,8 +27,7 @@ export async function GET(request: NextRequest) {
     })
 
     return NextResponse.json({ files })
-  } catch (error) {
-    console.error("Files fetch error:", error)
+  } catch {
     return NextResponse.json({ error: "Failed to load files" }, { status: 500 })
   }
 }
@@ -48,20 +46,8 @@ export async function POST(request: NextRequest) {
     const originalSize = Number.parseInt(formData.get("originalSize") as string)
     const userId = formData.get("userId") as string
 
-    if (
-      !encryptedData ||
-      !iv ||
-      !salt ||
-      !encryptedName ||
-      !nameIv ||
-      !nameSalt ||
-      !originalSize ||
-      !userId
-    ) {
-      return NextResponse.json(
-        { error: "Missing required fields" },
-        { status: 400 },
-      )
+    if (!encryptedData || !iv || !salt || !encryptedName || !nameIv || !nameSalt || !originalSize || !userId) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
     const fileId = crypto.randomUUID()
@@ -89,8 +75,7 @@ export async function POST(request: NextRequest) {
     })
 
     return NextResponse.json({ success: true, file: newFile })
-  } catch (error) {
-    console.error("Upload error:", error)
+  } catch {
     return NextResponse.json({ error: "Upload failed" }, { status: 500 })
   }
 }

@@ -8,7 +8,7 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid())
   username     String   @unique
   credentialId String   @unique
   publicKey    String
@@ -21,7 +21,7 @@ model User {
 }
 
 model File {
-  id            String   @id @default(cuid())
+  id            String   @id @default(uuid())
   encryptedName String
   originalSize  Int
   encryptedPath String
@@ -40,13 +40,17 @@ model File {
 }
 
 model SharedFile {
-  id             String    @id @default(cuid())
+  id             String    @id @default(uuid())
   shareToken     String    @unique
   salt           String
   iv             String
   createdAt      DateTime  @default(now())
   expiresAt      DateTime?
   sharedFilePath String
+  encryptedName  String
+  nameSalt       String
+  nameIv         String
+  originalSize   Int
 
   fileId String
   file   File   @relation(fields: [fileId], references: [id], onDelete: Cascade)

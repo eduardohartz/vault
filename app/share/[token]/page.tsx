@@ -1,33 +1,23 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { Button, Card, CardBody, CardHeader, Input, Spinner, useDisclosure } from "@heroui/react"
+import { AlertTriangle, Download, FileIcon, Key, Shield } from "lucide-react"
 import { useParams } from "next/navigation"
-import {
-  Card,
-  CardBody,
-  CardHeader,
-  Button,
-  Spinner,
-  Input,
-  useDisclosure,
-} from "@heroui/react"
-import { Download, Shield, FileIcon, Key, AlertTriangle } from "lucide-react"
-import { AdvancedCryptoManager } from "@/lib/advanced-crypto"
+import { useEffect, useState } from "react"
 import AlertModal from "@/components/alert-modal"
+import { AdvancedCryptoManager } from "@/lib/advanced-crypto"
 
-interface SharedFileData {
-  file: {
-    id: string
-    encryptedName: string
-    nameIv: string
-    nameSalt: string
-    originalSize: number
-    encryptedData: string
-    iv: string
-    salt: string
-    uploadedAt: string
-  }
-  expiresAt: string | null
+type SharedFileData = {
+  id: string
+  salt: string
+  expiresAt: Date | null
+  iv: string
+  encryptedName: string
+  nameIv: string
+  nameSalt: string
+  originalSize: number
+  encryptedData: string
+  createdAt: Date
 }
 
 export default function SharePage() {
@@ -41,11 +31,7 @@ export default function SharePage() {
   const [decryptedName, setDecryptedName] = useState("")
   const [isDecrypting, setIsDecrypting] = useState(false)
 
-  const {
-    isOpen: isAlertOpen,
-    onOpen: onAlertOpen,
-    onClose: onAlertClose,
-  } = useDisclosure()
+  const { isOpen: isAlertOpen, onOpen: onAlertOpen, onClose: onAlertClose } = useDisclosure()
   const [alertConfig, setAlertConfig] = useState({
     title: "",
     message: "",
@@ -56,11 +42,7 @@ export default function SharePage() {
     loadSharedFile()
   }, [token])
 
-  const showAlert = (
-    title: string,
-    message: string,
-    type: "success" | "error" | "warning" | "info" = "info",
-  ) => {
+  const showAlert = (title: string, message: string, type: "success" | "error" | "warning" | "info" = "info") => {
     setAlertConfig({ title, message, type })
     onAlertOpen()
   }
@@ -75,9 +57,8 @@ export default function SharePage() {
       } else {
         setError(data.error || "Failed to load shared file")
       }
-    } catch (error) {
+    } catch {
       setError("Failed to load shared file")
-      console.error("Share load error:", error)
     } finally {
       setIsLoading(false)
     }
@@ -85,43 +66,23 @@ export default function SharePage() {
 
   const decryptFileName = async () => {
     if (!fileData || !shareKey.trim()) {
-      showAlert(
-        "Missing Share Key",
-        "Please enter the share key to decrypt the filename.",
-        "warning",
-      )
+      showAlert("Missing Share Key", "Please enter the share key to decrypt the filename.", "warning")
       return
     }
 
     try {
       setIsDecrypting(true)
 
-      const nameSalt = Uint8Array.from(atob(fileData.file.nameSalt), (c) =>
-        c.charCodeAt(0),
-      )
-      const nameIv = Uint8Array.from(atob(fileData.file.nameIv), (c) =>
-        c.charCodeAt(0),
-      )
+      const nameSalt = Uint8Array.from(atob(fileData.nameSalt), (c) => c.charCodeAt(0))
+      const nameIv = Uint8Array.from(atob(fileData.nameIv), (c) => c.charCodeAt(0))
+      const nameKey = await AdvancedCryptoManager.deriveECDHKeyFromShared(shareKey.trim(), nameSalt)
 
-      const nameKey = await AdvancedCryptoManager.deriveFileKeyFromShareKey(
-        shareKey.trim(),
-        nameSalt,
-      )
-      const name = await AdvancedCryptoManager.decryptFilename(
-        fileData.file.encryptedName,
-        nameKey,
-        nameIv,
-      )
+      const name = await AdvancedCryptoManager.decryptFilename(fileData.encryptedName, nameKey, nameIv)
 
       setDecryptedName(name)
       showAlert("Success", "Filename decrypted successfully!", "success")
-    } catch (error) {
-      console.error("Filename decryption error:", error)
-      showAlert(
-        "Decryption Failed",
-        "Invalid share key or corrupted filename data.",
-        "error",
-      )
+    } catch {
+      showAlert("Decryption Failed", "Invalid share key or corrupted filename data.", "error")
     } finally {
       setIsDecrypting(false)
     }
@@ -129,55 +90,28 @@ export default function SharePage() {
 
   const downloadFile = async () => {
     if (!fileData || !shareKey.trim()) {
-      showAlert(
-        "Missing Share Key",
-        "Please enter the share key to download the file.",
-        "warning",
-      )
+      showAlert("Missing Share Key", "Please enter the share key to download the file.", "warning")
       return
     }
 
     try {
       setIsDecrypting(true)
 
-      const encryptedData = Uint8Array.from(
-        atob(fileData.file.encryptedData),
-        (c) => c.charCodeAt(0),
-      )
-      const iv = Uint8Array.from(atob(fileData.file.iv), (c) => c.charCodeAt(0))
-      const salt = Uint8Array.from(atob(fileData.file.salt), (c) =>
-        c.charCodeAt(0),
-      )
+      const encryptedData = Uint8Array.from(atob(fileData.encryptedData), (c) => c.charCodeAt(0))
+      const iv = Uint8Array.from(atob(fileData.iv), (c) => c.charCodeAt(0))
+      const salt = Uint8Array.from(atob(fileData.salt), (c) => c.charCodeAt(0))
 
-      const fileKey = await AdvancedCryptoManager.deriveFileKeyFromShareKey(
-        shareKey.trim(),
-        salt,
-      )
+      const fileKey = await AdvancedCryptoManager.deriveECDHKeyFromShared(shareKey.trim(), salt)
 
-      const decryptedData = await AdvancedCryptoManager.decryptFileAdvanced(
-        encryptedData.buffer,
-        fileKey,
-        iv,
-      )
+      const decryptedData = await AdvancedCryptoManager.decryptFileAdvanced(encryptedData.buffer, fileKey, iv)
 
       let fileName = decryptedName
       if (!fileName) {
         try {
-          const nameSalt = Uint8Array.from(atob(fileData.file.nameSalt), (c) =>
-            c.charCodeAt(0),
-          )
-          const nameIv = Uint8Array.from(atob(fileData.file.nameIv), (c) =>
-            c.charCodeAt(0),
-          )
-          const nameKey = await AdvancedCryptoManager.deriveFileKeyFromShareKey(
-            shareKey.trim(),
-            nameSalt,
-          )
-          fileName = await AdvancedCryptoManager.decryptFilename(
-            fileData.file.encryptedName,
-            nameKey,
-            nameIv,
-          )
+          const nameSalt = Uint8Array.from(atob(fileData.nameSalt), (c) => c.charCodeAt(0))
+          const nameIv = Uint8Array.from(atob(fileData.nameIv), (c) => c.charCodeAt(0))
+          const nameKey = await AdvancedCryptoManager.deriveECDHKeyFromShared(shareKey.trim(), nameSalt)
+          fileName = await AdvancedCryptoManager.decryptFilename(fileData.encryptedName, nameKey, nameIv)
           setDecryptedName(fileName)
         } catch {
           fileName = "shared-file"
@@ -194,31 +128,22 @@ export default function SharePage() {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
 
-      showAlert(
-        "Download Complete",
-        `Successfully downloaded "${fileName}"`,
-        "success",
-      )
-    } catch (error) {
-      console.error("Download error:", error)
-      showAlert(
-        "Download Failed",
-        "Invalid share key or corrupted file data.",
-        "error",
-      )
+      showAlert("Download Complete", `Successfully downloaded "${fileName}"`, "success")
+    } catch {
+      showAlert("Download Failed", "Invalid share key or corrupted file data.", "error")
     } finally {
       setIsDecrypting(false)
     }
   }
 
   const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return "0 Bytes"
+    if (bytes === 0) {
+      return "0 Bytes"
+    }
     const k = 1024
     const sizes = ["Bytes", "KB", "MB", "GB"]
     const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return (
-      Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
-    )
+    return `${Number.parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}`
   }
 
   const formatDate = (dateString: string) => {
@@ -232,8 +157,10 @@ export default function SharePage() {
   }
 
   const formatExpiryDate = () => {
-    if (!fileData?.expiresAt) return "Never"
-    return formatDate(fileData.expiresAt)
+    if (!fileData?.expiresAt) {
+      return "Never"
+    }
+    return formatDate(fileData.expiresAt.getTime().toString())
   }
 
   if (isLoading) {
@@ -272,7 +199,8 @@ export default function SharePage() {
             <h1 className="font-bold text-2xl">Shared File</h1>
             {fileData?.expiresAt && (
               <p className="text-default-500 text-sm">
-                Expires: {formatExpiryDate()}
+                Expires:
+                {formatExpiryDate()}
               </p>
             )}
           </CardHeader>
@@ -282,12 +210,10 @@ export default function SharePage() {
               <div className="flex items-center space-x-3 mb-3">
                 <FileIcon className="w-6 h-6 text-default-400" />
                 <div>
-                  <p className="font-medium">
-                    {decryptedName || "[Enter share key to decrypt filename]"}
-                  </p>
+                  <p className="font-medium">{decryptedName || "[Enter share key to decrypt filename]"}</p>
                   <p className="text-default-600 text-sm">
-                    {formatFileSize(fileData?.file.originalSize || 0)} •
-                    Uploaded {formatDate(fileData?.file.uploadedAt || "")}
+                    {formatFileSize(fileData?.originalSize || 0)} • Uploaded
+                    {formatDate(fileData?.createdAt.toString() || "")}
                   </p>
                 </div>
               </div>
@@ -295,9 +221,7 @@ export default function SharePage() {
 
             <div className="space-y-4">
               <div>
-                <label className="block mb-2 font-medium text-sm">
-                  Share Key
-                </label>
+                <label className="block mb-2 font-medium text-sm">Share Key</label>
                 <Input
                   placeholder="Enter the share key provided by the sender"
                   value={shareKey}
@@ -308,14 +232,7 @@ export default function SharePage() {
               </div>
 
               <div className="flex gap-3">
-                <Button
-                  color="secondary"
-                  variant="flat"
-                  onPress={decryptFileName}
-                  isLoading={isDecrypting}
-                  isDisabled={!shareKey.trim()}
-                  className="flex-1"
-                >
+                <Button color="secondary" variant="flat" onPress={decryptFileName} isLoading={isDecrypting} isDisabled={!shareKey.trim()} className="flex-1">
                   Decrypt Filename
                 </Button>
                 <Button
@@ -323,9 +240,7 @@ export default function SharePage() {
                   onPress={downloadFile}
                   isLoading={isDecrypting}
                   isDisabled={!shareKey.trim()}
-                  startContent={
-                    !isDecrypting && <Download className="w-4 h-4" />
-                  }
+                  startContent={!isDecrypting && <Download className="w-4 h-4" />}
                   className="flex-1"
                 >
                   {isDecrypting ? "Decrypting..." : "Download File"}
@@ -337,14 +252,8 @@ export default function SharePage() {
               <div className="flex items-start space-x-2">
                 <AlertTriangle className="mt-0.5 w-5 h-5 text-warning" />
                 <div>
-                  <p className="font-medium text-warning text-sm">
-                    Security Notice
-                  </p>
-                  <p className="mt-1 text-warning text-xs">
-                    This file is encrypted end-to-end. You need the correct
-                    share key to decrypt it. Never share your keys with
-                    untrusted parties.
-                  </p>
+                  <p className="font-medium text-warning text-sm">Security Notice</p>
+                  <p className="mt-1 text-warning text-xs">This file is encrypted end-to-end. You need the correct share key to decrypt it. Never share your keys with untrusted parties.</p>
                 </div>
               </div>
             </div>
@@ -352,13 +261,7 @@ export default function SharePage() {
         </Card>
       </div>
 
-      <AlertModal
-        isOpen={isAlertOpen}
-        onClose={onAlertClose}
-        title={alertConfig.title}
-        message={alertConfig.message}
-        type={alertConfig.type}
-      />
+      <AlertModal isOpen={isAlertOpen} onClose={onAlertClose} title={alertConfig.title} message={alertConfig.message} type={alertConfig.type} />
     </div>
   )
 }

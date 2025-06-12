@@ -1,16 +1,16 @@
 "use client"
 
 import {
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
   Button,
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
 } from "@heroui/react"
-import { CheckCircle, XCircle, AlertTriangle, Info } from "lucide-react"
+import { AlertTriangle, CheckCircle, Info, XCircle } from "lucide-react"
 
-interface AlertModalProps {
+type AlertModalProps = {
   isOpen: boolean
   onClose: () => void
   title: string

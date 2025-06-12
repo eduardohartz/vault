@@ -1,20 +1,10 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import {
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-  Button,
-  RadioGroup,
-  Radio,
-  Input,
-} from "@heroui/react"
+import { Button, Input, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader, Radio, RadioGroup } from "@heroui/react"
 import { Copy } from "lucide-react"
+import { useEffect, useState } from "react"
 
-interface ShareConfirmationModalProps {
+type ShareConfirmationModalProps = {
   isOpen: boolean
   onClose: () => void
   onConfirm: (expiryMinutes: number | null, shareKey: string) => void
@@ -22,13 +12,7 @@ interface ShareConfirmationModalProps {
   userShareKey: string
 }
 
-export default function ShareConfirmationModal({
-  isOpen,
-  onClose,
-  onConfirm,
-  fileName,
-  userShareKey,
-}: ShareConfirmationModalProps) {
+export default function ShareConfirmationModal({ isOpen, onClose, onConfirm, fileName, userShareKey }: ShareConfirmationModalProps) {
   const [expiry, setExpiry] = useState<string>("never")
   const [shareKey, setShareKey] = useState<string>(userShareKey)
 
@@ -66,9 +50,7 @@ export default function ShareConfirmationModal({
   const copyToClipboard = async () => {
     try {
       await navigator.clipboard.writeText(shareKey)
-    } catch (error) {
-      console.error("Failed to copy:", error)
-    }
+    } catch {}
   }
 
   return (
@@ -76,9 +58,7 @@ export default function ShareConfirmationModal({
       <ModalContent>
         <ModalHeader>Share "{fileName}"</ModalHeader>
         <ModalBody>
-          <p className="mb-4">
-            Choose how long this share link should be valid:
-          </p>
+          <p className="mb-4">Choose how long this share link should be valid:</p>
 
           <RadioGroup value={expiry} onValueChange={setExpiry}>
             <Radio value="10min">10 minutes</Radio>
@@ -92,31 +72,19 @@ export default function ShareConfirmationModal({
           <div className="mt-4">
             <p className="mb-2 font-medium text-sm">Share Key:</p>
             <div className="flex space-x-2">
-              <Input
-                value={shareKey}
-                readOnly
-                size="sm"
-                className="font-mono"
-                description="This key will be needed to decrypt the file"
-              />
+              <Input value={shareKey} readOnly size="sm" className="font-mono" description="This key will be needed to decrypt the file" />
               <Button isIconOnly size="sm" onPress={copyToClipboard}>
                 <Copy className="w-4 h-4" />
               </Button>
             </div>
-            <p className="mt-1 text-default-500 text-xs">
-              Share this key with the recipient. It cannot be recovered later.
-            </p>
+            <p className="mt-1 text-default-500 text-xs">Share this key with the recipient. It cannot be recovered later.</p>
           </div>
         </ModalBody>
         <ModalFooter>
           <Button variant="ghost" onPress={onClose}>
             Cancel
           </Button>
-          <Button
-            color="primary"
-            onPress={handleConfirm}
-            isDisabled={!shareKey}
-          >
+          <Button color="primary" onPress={handleConfirm} isDisabled={!shareKey}>
             Create Share Link
           </Button>
         </ModalFooter>

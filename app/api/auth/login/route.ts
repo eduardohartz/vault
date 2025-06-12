@@ -3,14 +3,14 @@ import { prisma } from "@/lib/db"
 
 export async function POST(request: NextRequest) {
   try {
-    const { credentialId } = await request.json()
+    const { credentialId, publicKey } = await request.json()
 
     const user = await prisma.user.findUnique({
-      where: { credentialId },
+      where: { credentialId, publicKey },
     })
 
     if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 })
+      return NextResponse.json({ error: "Error logging in" }, { status: 401 })
     }
 
     return NextResponse.json({
@@ -20,10 +20,7 @@ export async function POST(request: NextRequest) {
         username: user.username,
       },
     })
-  } catch (error) {
-    return NextResponse.json(
-      { error: "Authentication failed" },
-      { status: 500 },
-    )
+  } catch {
+    return NextResponse.json({ error: "Authentication failed" }, { status: 500 })
   }
 }

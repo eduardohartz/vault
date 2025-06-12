@@ -2,58 +2,45 @@
 
 import type React from "react"
 
-import { useState, useEffect, useRef } from "react"
 import {
+  Button,
   Card,
   CardBody,
   CardHeader,
-  Button,
   Chip,
-  Progress,
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-  useDisclosure,
   Dropdown,
-  DropdownTrigger,
-  DropdownMenu,
   DropdownItem,
-  Spinner,
+  DropdownMenu,
+  DropdownTrigger,
   Input,
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+  Progress,
+  Spinner,
+  useDisclosure,
 } from "@heroui/react"
-import {
-  Upload,
-  Download,
-  Trash2,
-  FileIcon,
-  LogOut,
-  Moon,
-  Sun,
-  Shield,
-  Share,
-  MoreVertical,
-  Copy,
-  Link,
-  ShareIcon as ShareOff,
-} from "lucide-react"
+import { Copy, Download, FileIcon, Link, LogOut, Moon, MoreVertical, Share, ShareIcon as ShareOff, Shield, Sun, Trash2, Upload } from "lucide-react"
 import { useTheme } from "next-themes"
-import { AdvancedCryptoManager } from "@/lib/advanced-crypto"
+import { useEffect, useRef, useState } from "react"
 import AlertModal from "@/components/alert-modal"
 import ShareConfirmationModal from "@/components/share-confirmation-modal"
+import { AdvancedCryptoManager } from "@/lib/advanced-crypto"
 
-interface FileManagerProps {
+type FileManagerProps = {
   user: {
     id: string
     username: string
     shareKey: string
-    privateKeyRaw: Uint8Array
+    privateKey: any
+    publicKey: any
   }
   onLogout: () => void
 }
 
-interface FileItem {
+type FileItem = {
   id: string
   encryptedName: string
   originalSize: number
@@ -69,7 +56,7 @@ interface FileItem {
   shareCount?: number
 }
 
-interface ShareInfo {
+type ShareInfo = {
   id: string
   shareToken: string
   createdAt: string
@@ -88,26 +75,10 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { theme, setTheme } = useTheme()
 
-  const {
-    isOpen: isDeleteOpen,
-    onOpen: onDeleteOpen,
-    onClose: onDeleteClose,
-  } = useDisclosure()
-  const {
-    isOpen: isShareOpen,
-    onOpen: onShareOpen,
-    onClose: onShareClose,
-  } = useDisclosure()
-  const {
-    isOpen: isShareConfirmOpen,
-    onOpen: onShareConfirmOpen,
-    onClose: onShareConfirmClose,
-  } = useDisclosure()
-  const {
-    isOpen: isAlertOpen,
-    onOpen: onAlertOpen,
-    onClose: onAlertClose,
-  } = useDisclosure()
+  const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure()
+  const { isOpen: isShareOpen, onOpen: onShareOpen, onClose: onShareClose } = useDisclosure()
+  const { isOpen: isShareConfirmOpen, onOpen: onShareConfirmOpen, onClose: onShareConfirmClose } = useDisclosure()
+  const { isOpen: isAlertOpen, onOpen: onAlertOpen, onClose: onAlertClose } = useDisclosure()
   const [alertConfig, setAlertConfig] = useState({
     title: "",
     message: "",
@@ -118,11 +89,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
     loadFiles()
   }, [user.id])
 
-  const showAlert = (
-    title: string,
-    message: string,
-    type: "success" | "error" | "warning" | "info" = "info",
-  ) => {
+  const showAlert = (title: string, message: string, type: "success" | "error" | "warning" | "info" = "info") => {
     setAlertConfig({ title, message, type })
     onAlertOpen()
   }
@@ -136,26 +103,12 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
         const filesWithDecryptedNames = await Promise.all(
           data.files.map(async (file: FileItem) => {
             try {
-              const nameSalt = Uint8Array.from(atob(file.nameSalt), (c) =>
-                c.charCodeAt(0),
-              )
-              const nameIv = Uint8Array.from(atob(file.nameIv), (c) =>
-                c.charCodeAt(0),
-              )
-              const nameKey =
-                await AdvancedCryptoManager.deriveFileKeyFromPrivateKey(
-                  user.privateKeyRaw,
-                  nameSalt,
-                )
-              const decryptedName = await AdvancedCryptoManager.decryptFilename(
-                file.encryptedName,
-                nameKey,
-                nameIv,
-              )
+              const nameSalt = Uint8Array.from(atob(file.nameSalt), (c) => c.charCodeAt(0))
+              const nameIv = Uint8Array.from(atob(file.nameIv), (c) => c.charCodeAt(0))
+              const key = await AdvancedCryptoManager.deriveECDHKey(user.privateKey.key, user.publicKey.key)
+              const decryptedName = await AdvancedCryptoManager.decryptFilename(file.encryptedName, key, nameIv)
 
-              const shareResponse = await fetch(
-                `/api/files/${file.id}/share?userId=${user.id}`,
-              )
+              const shareResponse = await fetch(`/api/files/${file.id}/share?userId=${user.id}`)
               const shareData = await shareResponse.json()
               const shareCount = shareResponse.ok ? shareData.shares.length : 0
 
@@ -165,12 +118,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
                 isShared: shareCount > 0,
                 shareCount,
               }
-            } catch (error) {
-              console.error(
-                "Failed to decrypt filename for file:",
-                file.id,
-                error,
-              )
+            } catch {
               return {
                 ...file,
                 decryptedName: "[Decryption Failed]",
@@ -183,10 +131,8 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
         setFiles(filesWithDecryptedNames)
       } else {
-        console.error("Failed to load files:", data.error)
       }
-    } catch (error) {
-      console.error("Failed to load files:", error)
+    } catch {
     } finally {
       setIsLoading(false)
     }
@@ -208,18 +154,14 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
     onLogout()
 
-    showAlert(
-      "Logged Out",
-      "All local data has been cleared. You have been successfully logged out.",
-      "success",
-    )
+    showAlert("Logged Out", "All local data has been cleared. You have been successfully logged out.", "success")
   }
 
-  const handleFileUpload = async (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
-    if (!file) return
+    if (!file) {
+      return
+    }
 
     setIsUploading(true)
     setUploadProgress(0)
@@ -230,30 +172,19 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
       setUploadProgress(10)
 
-      const fileKey = await AdvancedCryptoManager.deriveFileKeyFromPrivateKey(
-        user.privateKeyRaw,
-        salt,
-      )
-      const nameKey = await AdvancedCryptoManager.deriveFileKeyFromPrivateKey(
-        user.privateKeyRaw,
-        nameSalt,
-      )
+      const key = await AdvancedCryptoManager.deriveECDHKey(user.privateKey.key, user.publicKey.key)
 
       setUploadProgress(25)
 
-      const { encryptedData, iv } =
-        await AdvancedCryptoManager.encryptFileAdvanced(file, fileKey)
+      const { encryptedData, iv } = await AdvancedCryptoManager.encryptFileAdvanced(file, key)
 
       setUploadProgress(50)
 
-      const { encryptedName, iv: nameIv } =
-        await AdvancedCryptoManager.encryptFilename(file.name, nameKey)
+      const { encryptedName, iv: nameIv } = await AdvancedCryptoManager.encryptFilename(file.name, key)
 
       setUploadProgress(75)
 
-      const encryptedBase64 = btoa(
-        String.fromCharCode(...new Uint8Array(encryptedData)),
-      )
+      const encryptedBase64 = btoa(String.fromCharCode(...new Uint8Array(encryptedData)))
       const ivBase64 = btoa(String.fromCharCode(...iv))
       const saltBase64 = btoa(String.fromCharCode(...salt))
       const nameIvBase64 = btoa(String.fromCharCode(...nameIv))
@@ -278,22 +209,13 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
       if (response.ok) {
         await loadFiles()
-        showAlert(
-          "Upload Successful",
-          `"${file.name}" has been encrypted and uploaded successfully.`,
-          "success",
-        )
+        showAlert("Upload Successful", `"${file.name}" has been encrypted and uploaded successfully.`, "success")
       } else {
         const errorData = await response.json()
         throw new Error(errorData.error || "Upload failed")
       }
-    } catch (error) {
-      console.error("Upload error:", error)
-      showAlert(
-        "Upload Failed",
-        "Failed to upload file. Please try again.",
-        "error",
-      )
+    } catch {
+      showAlert("Upload Failed", "Failed to upload file. Please try again.", "error")
     } finally {
       setIsUploading(false)
       setUploadProgress(0)
@@ -314,22 +236,12 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
       const fileData = data.file
 
-      const encryptedData = Uint8Array.from(atob(fileData.encryptedData), (c) =>
-        c.charCodeAt(0),
-      )
+      const encryptedData = Uint8Array.from(atob(fileData.encryptedData), (c) => c.charCodeAt(0))
       const iv = Uint8Array.from(atob(fileData.iv), (c) => c.charCodeAt(0))
-      const salt = Uint8Array.from(atob(fileData.salt), (c) => c.charCodeAt(0))
 
-      const fileKey = await AdvancedCryptoManager.deriveFileKeyFromPrivateKey(
-        user.privateKeyRaw,
-        salt,
-      )
+      const key = await AdvancedCryptoManager.deriveECDHKey(user.privateKey.key, user.publicKey.key)
 
-      const decryptedData = await AdvancedCryptoManager.decryptFileAdvanced(
-        encryptedData.buffer,
-        fileKey,
-        iv,
-      )
+      const decryptedData = await AdvancedCryptoManager.decryptFileAdvanced(encryptedData.buffer, key, iv)
 
       const blob = new Blob([decryptedData])
       const url = URL.createObjectURL(blob)
@@ -341,39 +253,49 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
 
-      showAlert(
-        "Download Complete",
-        `"${file.decryptedName}" has been downloaded successfully.`,
-        "success",
-      )
-    } catch (error) {
-      console.error("Download error:", error)
-      showAlert(
-        "Download Failed",
-        "Failed to decrypt and download file.",
-        "error",
-      )
+      showAlert("Download Complete", `"${file.decryptedName}" has been downloaded successfully.`, "success")
+    } catch {
+      showAlert("Download Failed", "Failed to decrypt and download file.", "error")
+    }
+  }
+
+  const getFile = async (file: FileItem) => {
+    try {
+      const response = await fetch(`/api/files/${file.id}?userId=${user.id}`)
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to fetch file")
+      }
+
+      const fileData = data.file
+      const encryptedData = Uint8Array.from(atob(fileData.encryptedData), (c) => c.charCodeAt(0))
+      const iv = Uint8Array.from(atob(fileData.iv), (c) => c.charCodeAt(0))
+
+      const key = await AdvancedCryptoManager.deriveECDHKey(user.privateKey.key, user.publicKey.key)
+      const decryptedData = await AdvancedCryptoManager.decryptFileAdvanced(encryptedData.buffer, key, iv)
+
+      const decryptedFile = new File([decryptedData], file.decryptedName || "download", { type: "application/octet-stream" })
+      return decryptedFile
+    } catch {
+      showAlert("Decryption Failed", "Failed to decrypt file.", "error")
     }
   }
 
   const handleFileShare = async (file: FileItem) => {
     if (file.isShared) {
       try {
-        const response = await fetch(
-          `/api/files/${file.id}/share?userId=${user.id}`,
-        )
+        const response = await fetch(`/api/files/${file.id}/share?userId=${user.id}`)
         const data = await response.json()
 
         if (response.ok && data.shares.length > 0) {
-          const baseUrl =
-            process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
           setShareUrl(`${baseUrl}/share/${data.shares[0].shareToken}`)
           setShareInfo(data.shares)
           setSelectedFile(file)
           onShareOpen()
         }
-      } catch (error) {
-        console.error("Share error:", error)
+      } catch {
         showAlert("Share Failed", "Failed to get share link.", "error")
       }
     } else {
@@ -382,25 +304,52 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
     }
   }
 
-  const handleShareConfirm = async (
-    expiryMinutes: number | null,
-    shareKey: string,
-  ) => {
-    if (!selectedFile) return
+  const handleShareConfirm = async (expiryMinutes: number | null, shareKey: string) => {
+    if (!selectedFile) {
+      return
+    }
 
     try {
-      const expiresAt = expiryMinutes
-        ? new Date(Date.now() + expiryMinutes * 60 * 1000).toISOString()
-        : null
+      const expiresAt = expiryMinutes ? new Date(Date.now() + expiryMinutes * 60 * 1000).toISOString() : null
+
+      const file = await getFile(selectedFile)
+
+      if (!file) {
+        throw new Error("Failed to retrieve file for sharing")
+      }
+
+      const salt = crypto.getRandomValues(new Uint8Array(16))
+      const nameSalt = crypto.getRandomValues(new Uint8Array(16))
+      const key = await AdvancedCryptoManager.deriveECDHKeyFromShared(shareKey.trim(), salt)
+      const nameKey = await AdvancedCryptoManager.deriveECDHKeyFromShared(shareKey.trim(), nameSalt)
+
+      const rawKey = await crypto.subtle.exportKey("raw", key)
+      const keyBytes = new Uint8Array(rawKey)
+
+      const { encryptedData, iv } = await AdvancedCryptoManager.encryptFileAdvanced(file, key)
+
+      const { encryptedName, iv: nameIv } = await AdvancedCryptoManager.encryptFilename(file.name, nameKey)
+
+      const encryptedBase64 = btoa(String.fromCharCode(...new Uint8Array(encryptedData)))
+      const ivBase64 = btoa(String.fromCharCode(...iv))
+      const saltBase64 = btoa(String.fromCharCode(...salt))
+      const nameIvBase64 = btoa(String.fromCharCode(...nameIv))
+      const nameSaltBase64 = btoa(String.fromCharCode(...nameSalt))
+
+      const formData = new FormData()
+      formData.append("encryptedData", encryptedBase64)
+      formData.append("iv", ivBase64)
+      formData.append("salt", saltBase64)
+      formData.append("encryptedName", encryptedName)
+      formData.append("nameIv", nameIvBase64)
+      formData.append("nameSalt", nameSaltBase64)
+      formData.append("originalSize", file.size.toString())
+      formData.append("userId", user.id)
+      formData.append("expiresAt", expiresAt || "")
 
       const response = await fetch(`/api/files/${selectedFile.id}/share`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: user.id,
-          expiresAt,
-          shareKey,
-        }),
+        body: formData,
       })
 
       const data = await response.json()
@@ -417,16 +366,11 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
         ])
         onShareOpen()
         await loadFiles()
-        showAlert(
-          "Share Created",
-          "Share link created successfully!",
-          "success",
-        )
+        showAlert("Share Created", "Share link created successfully!", "success")
       } else {
         throw new Error(data.error || "Failed to create share")
       }
-    } catch (error) {
-      console.error("Share error:", error)
+    } catch {
       showAlert("Share Failed", "Failed to create share link.", "error")
     }
   }
@@ -441,17 +385,12 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
       if (response.ok) {
         await loadFiles()
-        showAlert(
-          "Unshared Successfully",
-          `"${file.decryptedName}" is no longer shared.`,
-          "success",
-        )
+        showAlert("Unshared Successfully", `"${file.decryptedName}" is no longer shared.`, "success")
       } else {
         const data = await response.json()
         throw new Error(data.error || "Failed to unshare file")
       }
-    } catch (error) {
-      console.error("Unshare error:", error)
+    } catch {
       showAlert("Unshare Failed", "Failed to unshare file.", "error")
     }
   }
@@ -465,17 +404,12 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
       if (response.ok) {
         await loadFiles()
         onDeleteClose()
-        showAlert(
-          "File Deleted",
-          "File has been permanently deleted.",
-          "success",
-        )
+        showAlert("File Deleted", "File has been permanently deleted.", "success")
       } else {
         const data = await response.json()
         throw new Error(data.error || "Delete failed")
       }
-    } catch (error) {
-      console.error("Delete error:", error)
+    } catch {
       showAlert("Delete Failed", "Failed to delete file.", "error")
     }
   }
@@ -484,20 +418,19 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
     try {
       await navigator.clipboard.writeText(text)
       showAlert("Copied!", `${label} copied to clipboard.`, "success")
-    } catch (error) {
-      console.error("Failed to copy:", error)
+    } catch {
       showAlert("Copy Failed", `Failed to copy ${label}.`, "error")
     }
   }
 
   const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return "0 Bytes"
+    if (bytes === 0) {
+      return "0 Bytes"
+    }
     const k = 1024
     const sizes = ["Bytes", "KB", "MB", "GB"]
     const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return (
-      Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
-    )
+    return `${Number.parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}`
   }
 
   const formatDate = (dateString: string) => {
@@ -517,7 +450,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-3">
               <Shield className="w-6 h-6 text-primary" />
-              <h1 className="font-semibold text-xl">Encrypted File Manager</h1>
+              <h1 className="font-semibold text-xl">Eduardo's Vault</h1>
             </div>
 
             <div className="flex items-center space-x-3">
@@ -532,40 +465,20 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
                   </Button>
                 </DropdownTrigger>
                 <DropdownMenu>
-                  <DropdownItem
-                    key="share-key"
-                    startContent={<Copy className="w-4 h-4" />}
-                    onPress={() => setShowShareKey(!showShareKey)}
-                  >
+                  <DropdownItem key="share-key" startContent={<Copy className="w-4 h-4" />} onPress={() => setShowShareKey(!showShareKey)}>
                     {showShareKey ? "Hide Share Key" : "Show Share Key"}
                   </DropdownItem>
-                  <DropdownItem
-                    key="copy-share-key"
-                    startContent={<Share className="w-4 h-4" />}
-                    onPress={() => copyToClipboard(user.shareKey, "Share key")}
-                  >
+                  <DropdownItem key="copy-share-key" startContent={<Share className="w-4 h-4" />} onPress={() => copyToClipboard(user.shareKey, "Share key")}>
                     Copy Share Key
                   </DropdownItem>
                 </DropdownMenu>
               </Dropdown>
 
-              <Button
-                isIconOnly
-                variant="ghost"
-                onPress={() => setTheme(theme === "dark" ? "light" : "dark")}
-              >
-                {theme === "dark" ? (
-                  <Sun className="w-4 h-4" />
-                ) : (
-                  <Moon className="w-4 h-4" />
-                )}
+              <Button isIconOnly variant="ghost" onPress={() => setTheme(theme === "dark" ? "light" : "dark")}>
+                {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               </Button>
 
-              <Button
-                variant="ghost"
-                onPress={handleLogout}
-                startContent={<LogOut className="w-4 h-4" />}
-              >
+              <Button variant="ghost" onPress={handleLogout} startContent={<LogOut className="w-4 h-4" />}>
                 Logout
               </Button>
             </div>
@@ -581,21 +494,12 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
             </CardHeader>
             <CardBody>
               <div className="flex items-center space-x-2">
-                <code className="flex-1 bg-default-100 p-2 rounded text-sm break-all">
-                  {user.shareKey}
-                </code>
-                <Button
-                  size="sm"
-                  onPress={() => copyToClipboard(user.shareKey, "Share key")}
-                  startContent={<Copy className="w-4 h-4" />}
-                >
+                <code className="flex-1 bg-default-100 p-2 rounded text-sm break-all">{user.shareKey}</code>
+                <Button size="sm" onPress={() => copyToClipboard(user.shareKey, "Share key")} startContent={<Copy className="w-4 h-4" />}>
                   Copy
                 </Button>
               </div>
-              <p className="mt-2 text-default-600 text-sm">
-                Share this key with others to allow them to decrypt files you
-                share with them.
-              </p>
+              <p className="mt-2 text-default-600 text-sm">Share this key with others to allow them to decrypt files you share with them.</p>
             </CardBody>
           </Card>
         )}
@@ -606,47 +510,26 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
           </CardHeader>
           <CardBody>
             <div className="flex items-center space-x-4">
-              <input
-                ref={fileInputRef}
-                type="file"
-                onChange={handleFileUpload}
-                className="hidden"
-                disabled={isUploading}
-              />
+              <input ref={fileInputRef} type="file" onChange={handleFileUpload} className="hidden" disabled={isUploading} />
 
-              <Button
-                color="primary"
-                onPress={() => fileInputRef.current?.click()}
-                isDisabled={isUploading}
-                startContent={<Upload className="w-4 h-4" />}
-              >
+              <Button color="primary" onPress={() => fileInputRef.current?.click()} isDisabled={isUploading} startContent={<Upload className="w-4 h-4" />}>
                 Choose File
               </Button>
 
               {isUploading && (
                 <div className="flex-1 max-w-xs">
-                  <Progress
-                    value={uploadProgress}
-                    color="primary"
-                    size="sm"
-                    showValueLabel
-                  />
+                  <Progress value={uploadProgress} color="primary" size="sm" showValueLabel />
                 </div>
               )}
             </div>
 
-            <p className="mt-2 text-default-600 text-sm">
-              🔒 Files are encrypted with your private key derived from your
-              passkey
-            </p>
+            <p className="mt-2 text-default-600 text-sm">🔒 Files are encrypted with your private key derived from your passkey</p>
           </CardBody>
         </Card>
 
         <Card>
           <CardHeader>
-            <h2 className="font-semibold text-lg">
-              Your Files ({files.length})
-            </h2>
+            <h2 className="font-semibold text-lg">Your Files ({files.length})</h2>
           </CardHeader>
           <CardBody>
             {isLoading ? (
@@ -654,9 +537,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
                 <Spinner size="lg" />
               </div>
             ) : files.length === 0 ? (
-              <div className="py-8 text-default-500 text-center">
-                No files uploaded yet
-              </div>
+              <div className="py-8 text-default-500 text-center">No files uploaded yet</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -664,15 +545,9 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
                     <tr className="border-divider border-b">
                       <th className="px-4 py-3 font-medium text-left">NAME</th>
                       <th className="px-4 py-3 font-medium text-left">SIZE</th>
-                      <th className="px-4 py-3 font-medium text-left">
-                        UPLOADED
-                      </th>
-                      <th className="px-4 py-3 font-medium text-left">
-                        STATUS
-                      </th>
-                      <th className="px-4 py-3 font-medium text-right">
-                        ACTIONS
-                      </th>
+                      <th className="px-4 py-3 font-medium text-left">UPLOADED</th>
+                      <th className="px-4 py-3 font-medium text-left">STATUS</th>
+                      <th className="px-4 py-3 font-medium text-right">ACTIONS</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -681,17 +556,11 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
                         <td className="px-4 py-3">
                           <div className="flex items-center space-x-2">
                             <FileIcon className="w-4 h-4 text-default-400" />
-                            <span className="font-medium">
-                              {file.decryptedName}
-                            </span>
+                            <span className="font-medium">{file.decryptedName}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-3">
-                          {formatFileSize(file.originalSize)}
-                        </td>
-                        <td className="px-4 py-3">
-                          {formatDate(file.uploadedAt)}
-                        </td>
+                        <td className="px-4 py-3">{formatFileSize(file.originalSize)}</td>
+                        <td className="px-4 py-3">{formatDate(file.uploadedAt)}</td>
                         <td className="px-4 py-3">
                           {file.isShared ? (
                             <Chip size="sm" color="success" variant="flat">
@@ -705,58 +574,27 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
                         </td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex justify-end space-x-2">
-                            <Button
-                              isIconOnly
-                              size="sm"
-                              variant="light"
-                              onPress={() => handleFileDownload(file)}
-                              aria-label="Download"
-                            >
+                            <Button isIconOnly size="sm" variant="light" onPress={() => handleFileDownload(file)} aria-label="Download">
                               <Download className="w-4 h-4" />
                             </Button>
                             {file.isShared ? (
                               <Dropdown>
                                 <DropdownTrigger>
-                                  <Button
-                                    isIconOnly
-                                    size="sm"
-                                    variant="light"
-                                    color="success"
-                                    aria-label="Share options"
-                                  >
+                                  <Button isIconOnly size="sm" variant="light" color="success" aria-label="Share options">
                                     <Share className="w-4 h-4" />
                                   </Button>
                                 </DropdownTrigger>
                                 <DropdownMenu>
-                                  <DropdownItem
-                                    key="view-share"
-                                    startContent={<Share className="w-4 h-4" />}
-                                    onPress={() => handleFileShare(file)}
-                                  >
+                                  <DropdownItem key="view-share" startContent={<Share className="w-4 h-4" />} onPress={() => handleFileShare(file)}>
                                     View Share Link
                                   </DropdownItem>
-                                  <DropdownItem
-                                    key="unshare"
-                                    startContent={
-                                      <ShareOff className="w-4 h-4" />
-                                    }
-                                    className="text-danger"
-                                    color="danger"
-                                    onPress={() => handleUnshare(file)}
-                                  >
+                                  <DropdownItem key="unshare" startContent={<ShareOff className="w-4 h-4" />} className="text-danger" color="danger" onPress={() => handleUnshare(file)}>
                                     Unshare File
                                   </DropdownItem>
                                 </DropdownMenu>
                               </Dropdown>
                             ) : (
-                              <Button
-                                isIconOnly
-                                size="sm"
-                                variant="light"
-                                color="secondary"
-                                onPress={() => handleFileShare(file)}
-                                aria-label="Share"
-                              >
+                              <Button isIconOnly size="sm" variant="light" color="secondary" onPress={() => handleFileShare(file)} aria-label="Share">
                                 <Share className="w-4 h-4" />
                               </Button>
                             )}
@@ -790,35 +628,22 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
           <ModalHeader>Delete File</ModalHeader>
           <ModalBody>
             <p>
-              Are you sure you want to delete{" "}
-              <strong>"{selectedFile?.decryptedName}"</strong>?
+              Are you sure you want to delete <strong>"{selectedFile?.decryptedName}"</strong>?
             </p>
-            <p className="text-default-600 text-sm">
-              This action cannot be undone and will also remove any shared
-              links.
-            </p>
+            <p className="text-default-600 text-sm">This action cannot be undone and will also remove any shared links.</p>
           </ModalBody>
           <ModalFooter>
             <Button variant="ghost" onPress={onDeleteClose}>
               Cancel
             </Button>
-            <Button
-              color="danger"
-              onPress={() => selectedFile && handleFileDelete(selectedFile.id)}
-            >
+            <Button color="danger" onPress={() => selectedFile && handleFileDelete(selectedFile.id)}>
               Delete
             </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
 
-      <ShareConfirmationModal
-        isOpen={isShareConfirmOpen}
-        onClose={onShareConfirmClose}
-        onConfirm={handleShareConfirm}
-        fileName={selectedFile?.decryptedName || ""}
-        userShareKey={user.shareKey}
-      />
+      <ShareConfirmationModal isOpen={isShareConfirmOpen} onClose={onShareConfirmClose} onConfirm={handleShareConfirm} fileName={selectedFile?.decryptedName || ""} userShareKey={user.shareKey} />
 
       <Modal isOpen={isShareOpen} onClose={onShareClose}>
         <ModalContent>
@@ -834,16 +659,8 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
               <div>
                 <label className="font-medium text-sm">Share Link:</label>
                 <div className="flex items-center space-x-2 mt-1">
-                  <Input
-                    value={shareUrl}
-                    readOnly
-                    size="sm"
-                    startContent={<Link className="w-4 h-4" />}
-                  />
-                  <Button
-                    size="sm"
-                    onPress={() => copyToClipboard(shareUrl, "Share link")}
-                  >
+                  <Input value={shareUrl} readOnly size="sm" startContent={<Link className="w-4 h-4" />} />
+                  <Button size="sm" onPress={() => copyToClipboard(shareUrl, "Share link")}>
                     Copy
                   </Button>
                 </div>
@@ -852,16 +669,8 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
               <div>
                 <label className="font-medium text-sm">Your Share Key:</label>
                 <div className="flex items-center space-x-2 mt-1">
-                  <Input
-                    value={user.shareKey}
-                    readOnly
-                    size="sm"
-                    startContent={<Shield className="w-4 h-4" />}
-                  />
-                  <Button
-                    size="sm"
-                    onPress={() => copyToClipboard(user.shareKey, "Share key")}
-                  >
+                  <Input value={user.shareKey} readOnly size="sm" startContent={<Shield className="w-4 h-4" />} />
+                  <Button size="sm" onPress={() => copyToClipboard(user.shareKey, "Share key")}>
                     Copy
                   </Button>
                 </div>
@@ -869,23 +678,20 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
             </div>
 
             <div className="bg-warning/10 mt-4 p-3 border border-warning/20 rounded-lg">
-              <p className="text-warning text-sm">
-                ⚠️ Both the link AND your share key are required to decrypt the
-                file. Make sure to send both to the recipient through secure
-                channels.
-              </p>
+              <p className="text-warning text-sm">⚠️ Both the link AND your share key are required to decrypt the file. Make sure to send both to the recipient through secure channels.</p>
             </div>
 
             {shareInfo.length > 0 && (
               <div className="mt-4">
                 <p className="mb-2 font-medium text-sm">Share Details:</p>
                 <div className="text-default-600 text-xs">
-                  <p>Created: {formatDate(shareInfo[0].createdAt)}</p>
                   <p>
-                    Expires:{" "}
-                    {shareInfo[0].expiresAt
-                      ? formatDate(shareInfo[0].expiresAt)
-                      : "Never"}
+                    Created:
+                    {formatDate(shareInfo[0].createdAt)}
+                  </p>
+                  <p>
+                    Expires:
+                    {shareInfo[0].expiresAt ? formatDate(shareInfo[0].expiresAt) : "Never"}
                   </p>
                 </div>
               </div>
@@ -899,13 +705,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
         </ModalContent>
       </Modal>
 
-      <AlertModal
-        isOpen={isAlertOpen}
-        onClose={onAlertClose}
-        title={alertConfig.title}
-        message={alertConfig.message}
-        type={alertConfig.type}
-      />
+      <AlertModal isOpen={isAlertOpen} onClose={onAlertClose} title={alertConfig.title} message={alertConfig.message} type={alertConfig.type} />
     </div>
   )
 }

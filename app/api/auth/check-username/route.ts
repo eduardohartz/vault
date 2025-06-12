@@ -6,10 +6,7 @@ export async function POST(request: NextRequest) {
     const { username } = await request.json()
 
     if (!username || username.trim().length === 0) {
-      return NextResponse.json(
-        { error: "Username is required" },
-        { status: 400 },
-      )
+      return NextResponse.json({ error: "Username is required" }, { status: 400 })
     }
 
     const existingUser = await prisma.user.findUnique({
@@ -25,10 +22,7 @@ export async function POST(request: NextRequest) {
       currentUserCount: userCount,
       maxUsers,
     })
-  } catch (error) {
-    return NextResponse.json(
-      { error: "Failed to check username" },
-      { status: 500 },
-    )
+  } catch {
+    return NextResponse.json({ error: "Failed to check username" }, { status: 500 })
   }
 }

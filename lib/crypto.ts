@@ -30,10 +30,10 @@ export class CryptoManager {
     file: File,
     password: string,
   ): Promise<{
-    encryptedData: ArrayBuffer
-    salt: Uint8Array
-    iv: Uint8Array
-  }> {
+      encryptedData: ArrayBuffer
+      salt: Uint8Array
+      iv: Uint8Array
+    }> {
     const salt = crypto.getRandomValues(new Uint8Array(16))
     const iv = crypto.getRandomValues(new Uint8Array(12))
     const key = await this.deriveKey(password, salt)
@@ -63,10 +63,10 @@ export class CryptoManager {
     data: string,
     password: string,
   ): Promise<{
-    encryptedData: string
-    salt: string
-    iv: string
-  }> {
+      encryptedData: string
+      salt: string
+      iv: string
+    }> {
     const salt = crypto.getRandomValues(new Uint8Array(16))
     const iv = crypto.getRandomValues(new Uint8Array(12))
     const key = await this.deriveKey(password, salt)
@@ -96,8 +96,7 @@ export class CryptoManager {
     const saltBytes = Uint8Array.from(atob(salt), (c) => c.charCodeAt(0))
     const ivBytes = Uint8Array.from(atob(iv), (c) => c.charCodeAt(0))
     const encryptedBytes = Uint8Array.from(atob(encryptedData), (c) =>
-      c.charCodeAt(0),
-    )
+      c.charCodeAt(0))
 
     const key = await this.deriveKey(password, saltBytes)
     const decryptedBuffer = await crypto.subtle.decrypt(

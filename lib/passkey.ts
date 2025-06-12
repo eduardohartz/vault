@@ -1,32 +1,36 @@
 import { keccak256 } from "js-sha3"
 
 export class PasskeyManager {
-  private static rpId =
-    typeof window !== "undefined" ? window.location.hostname : "localhost"
-  private static rpName = "Encrypted File Manager"
+  private static rpId = typeof window !== "undefined" ? window.location.hostname : "localhost"
+  private static rpName = "Vault"
 
   static async isSupported(): Promise<boolean> {
-    if (typeof window === "undefined") return false
+    if (typeof window === "undefined") {
+      return false
+    }
     return !!(window.navigator?.credentials && window.PublicKeyCredential)
   }
 
   static async isPRFSupported(): Promise<boolean> {
-    if (typeof window === "undefined") return false
+    if (typeof window === "undefined") {
+      return false
+    }
 
     try {
-      if (!window.PublicKeyCredential) return false
+      if (!window.PublicKeyCredential) {
+        return false
+      }
 
-      const available =
-        await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
-      if (!available) return false
+      const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+      if (!available) {
+        return false
+      }
 
       const capabilities = await PublicKeyCredential.getClientCapabilities()
 
-      if (
-        capabilities["extension:prf"] === false ||
-        !capabilities["extension:prf"]
-      )
+      if (capabilities["extension:prf"] === false || !capabilities["extension:prf"]) {
         return false
+      }
 
       return true
     } catch (error) {
@@ -35,15 +39,12 @@ export class PasskeyManager {
     }
   }
 
-  static async register(username: string): Promise<{
-    credential: PublicKeyCredential
-    challenge: string
-  }> {
+  static async register(username: string): Promise<PublicKeyCredential> {
     if (typeof window === "undefined") {
-      throw new Error("Passkey registration only available in browser")
+      throw new TypeError("Passkey registration only available in browser")
     }
 
-    const challenge = crypto.getRandomValues(new Uint8Array(32))
+    const challenge = crypto.getRandomValues(new Uint8Array(16)).buffer
     const userId = crypto.getRandomValues(new Uint8Array(32))
 
     const credential = (await navigator.credentials.create({
@@ -63,8 +64,6 @@ export class PasskeyManager {
           { alg: -257, type: "public-key" },
         ],
         authenticatorSelection: {
-          authenticatorAttachment: "platform",
-          userVerification: "required",
           residentKey: "required",
         },
         timeout: 60000,
@@ -73,28 +72,23 @@ export class PasskeyManager {
       },
     })) as PublicKeyCredential
 
-    if (!credential) {
+    if (!credential.id) {
       throw new Error("Failed to create credential")
     }
 
-    return {
-      credential,
-      challenge: Array.from(challenge, (byte) =>
-        byte.toString(16).padStart(2, "0"),
-      ).join(""),
-    }
+    return credential
   }
 
   static async authenticate(): Promise<PublicKeyCredential> {
     if (typeof window === "undefined") {
-      throw new Error("Passkey authentication only available in browser")
+      throw new TypeError("Passkey authentication only available in browser")
     }
 
-    const challenge = crypto.getRandomValues(new Uint8Array(32))
+    const challenge = crypto.getRandomValues(new Uint8Array(16)).buffer
 
     const input = "filekey_security_key_wallet_first"
     const hashHex: string = keccak256(input)
-    const buffer: ArrayBuffer = hexToArrayBuffer(hashHex)
+    const buffer: ArrayBufferLike = (hexToArrayBuffer(keccak256(input), Uint8Array) as Uint8Array).buffer
 
     const credential = (await navigator.credentials.get({
       publicKey: {
@@ -105,7 +99,7 @@ export class PasskeyManager {
         extensions: {
           prf: {
             eval: {
-              first: buffer,
+              first: buffer as ArrayBuffer,
             },
           },
         },
@@ -120,12 +114,23 @@ export class PasskeyManager {
   }
 }
 
-function hexToArrayBuffer(hex: string): ArrayBuffer {
-  if (hex.startsWith("0x")) hex = hex.slice(2)
-  const len = hex.length / 2
-  const bytes = new Uint8Array(len)
-  for (let i = 0; i < len; i++) {
-    bytes[i] = parseInt(hex.substr(i * 2, 2), 16)
+function hexStringToHexNumber(hex_str: string) {
+  if (new RegExp(/0x/i).test(hex_str.substring(0, 2))) {
+    return hex_str.substring(2)
+  } else {
+    return hex_str
   }
-  return bytes.buffer
+}
+
+function hexToArrayBuffer<T extends ArrayBufferView = Uint8Array>(hexStr: string, bufferType?: { new (array: number[]): T }): ArrayBuffer | T {
+  const cleanedHex = hexStringToHexNumber(hexStr)
+
+  const ret: number[] = []
+  for (let i = 0; i < cleanedHex.length / 2; i++) {
+    const x = i * 2
+    const n = Number.parseInt(cleanedHex.substr(x, 2), 16)
+    ret.push(n)
+  }
+
+  return bufferType ? new bufferType(ret) : new Uint8Array(ret).buffer
 }
