@@ -283,7 +283,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
         const response = await fetch(`/api/files/${file.id}/share?userId=${user.id}`)
         const data = await response.json()
 
-        if (response.ok && data.shares.length > 0) {
+        if (response.ok && data) {
           const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
           setShareUrl(`${baseUrl}/share/${data.shareToken}`)
           setShareInfo(data)
