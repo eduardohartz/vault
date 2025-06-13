@@ -157,7 +157,6 @@ export class CryptoManager {
     }> {
     const iv = crypto.getRandomValues(new Uint8Array(12))
     const fileBuffer = file instanceof File ? await file.arrayBuffer() : file
-
     const encryptedData = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, encryptionKey, fileBuffer)
 
     return { encryptedData, iv }

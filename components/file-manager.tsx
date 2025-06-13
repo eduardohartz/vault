@@ -179,8 +179,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
       const { encryptedName, iv: nameIv } = await CryptoManager.encryptFilename(file.name, key)
 
       setUploadProgress(75)
-
-      const encryptedBase64 = btoa(String.fromCharCode(...new Uint8Array(encryptedData)))
+      const encryptedBase64 = Buffer.from(encryptedData).toString("base64")
       const ivBase64 = btoa(String.fromCharCode(...iv))
       const saltBase64 = btoa(String.fromCharCode(...salt))
       const nameIvBase64 = btoa(String.fromCharCode(...nameIv))
