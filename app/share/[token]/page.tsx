@@ -5,6 +5,7 @@ import { AlertTriangle, Download, FileIcon, Key, Shield } from "lucide-react"
 import { useParams } from "next/navigation"
 import { useEffect, useState } from "react"
 import AlertModal from "@/components/alert-modal"
+import Inactivity from "@/components/inactivity"
 import { CryptoManager } from "@/lib/crypto-manager"
 
 type SharedFileData = {
@@ -188,6 +189,7 @@ export default function SharePage() {
 
   return (
     <div className="bg-background p-4 min-h-screen">
+      <Inactivity />
       <div className="mx-auto max-w-2xl">
         <Card>
           <CardHeader className="text-center">
