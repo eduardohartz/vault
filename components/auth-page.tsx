@@ -12,7 +12,7 @@ import { KeyHelper } from "@/lib/key-helper"
 import { PasskeyManager } from "@/lib/passkey-manager"
 
 type AuthPageProps = {
-  onAuthenticated: (user: { id: string, username: string, privateKey: any, publicKey: any, shareKey: string }) => void
+  onAuthenticated: (user: { id: string; username: string; privateKey: any; publicKey: any; shareKey: string }) => void
 }
 
 export default function AuthPage({ onAuthenticated }: AuthPageProps) {
@@ -59,7 +59,7 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
     setIsLoading(true)
 
     try {
-      const response = await fetch("/api/auth/check-username", {
+      const response = await fetch("/api/auth/username", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: username.trim() }),
@@ -293,9 +293,7 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
             <>
               <div className="flex justify-between items-center bg-default-50 dark:bg-default-100 mb-4 p-3 rounded-lg">
                 <p className="text-sm">
-                  <strong>Username:</strong>
-                  {" "}
-                  {username}
+                  <strong>Username:</strong> {username}
                 </p>
                 <Button size="sm" variant="ghost" onPress={resetForm} className="">
                   Change Username

@@ -91,7 +91,11 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
   const loadFiles = async () => {
     try {
-      const response = await fetch(`/api/files?userId=${user.id}`)
+      const response = await fetch(`/api/files`, {
+        headers: {
+          Authorization: `Bearer ${user.id}`,
+        },
+      })
       const data = await response.json()
 
       if (response.ok) {
@@ -102,7 +106,11 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
               const key = await CryptoManager.deriveECDHKey(user.privateKey.key, user.publicKey.key)
               const decryptedName = await CryptoManager.decryptFilename(file.encryptedName, key, nameIv)
 
-              const shareResponse = await fetch(`/api/files/${file.id}/share?userId=${user.id}`)
+              const shareResponse = await fetch(`/api/files/${file.id}/share`, {
+                headers: {
+                  Authorization: `Bearer ${user.id}`,
+                },
+              })
               const shareData = await shareResponse.json()
 
               return {
@@ -149,8 +157,6 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
     }
 
     onLogout()
-
-    showAlert("Logged Out", "All local data has been cleared. You have been successfully logged out.", "success")
   }
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -193,11 +199,13 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
       formData.append("nameIv", nameIvBase64)
       formData.append("nameSalt", nameSaltBase64)
       formData.append("originalSize", file.size.toString())
-      formData.append("userId", user.id)
 
       const response = await fetch("/api/files", {
         method: "POST",
         body: formData,
+        headers: {
+          Authorization: `Bearer ${user.id}`,
+        },
       })
 
       setUploadProgress(100)
@@ -222,7 +230,11 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
   const handleFileDownload = async (file: FileItem) => {
     try {
-      const response = await fetch(`/api/files/${file.id}?userId=${user.id}`)
+      const response = await fetch(`/api/files/${file.id}`, {
+        headers: {
+          Authorization: `Bearer ${user.id}`,
+        },
+      })
       const data = await response.json()
 
       if (!response.ok) {
@@ -256,7 +268,11 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
   const getFile = async (file: FileItem) => {
     try {
-      const response = await fetch(`/api/files/${file.id}?userId=${user.id}`)
+      const response = await fetch(`/api/files/${file.id}`, {
+        headers: {
+          Authorization: `Bearer ${user.id}`,
+        },
+      })
       const data = await response.json()
 
       if (!response.ok) {
@@ -280,7 +296,11 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
   const handleFileShare = async (file: FileItem) => {
     if (file.isShared) {
       try {
-        const response = await fetch(`/api/files/${file.id}/share?userId=${user.id}`)
+        const response = await fetch(`/api/files/${file.id}/share`, {
+          headers: {
+            Authorization: `Bearer ${user.id}`,
+          },
+        })
         const data = await response.json()
 
         if (response.ok && data) {
@@ -322,7 +342,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
       const { encryptedName, iv: nameIv } = await CryptoManager.encryptFilename(file.name, nameKey)
 
-      const encryptedBase64 = btoa(String.fromCharCode(...new Uint8Array(encryptedData)))
+      const encryptedBase64 = Buffer.from(encryptedData).toString("base64")
       const ivBase64 = btoa(String.fromCharCode(...iv))
       const saltBase64 = btoa(String.fromCharCode(...salt))
       const nameIvBase64 = btoa(String.fromCharCode(...nameIv))
@@ -336,12 +356,14 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
       formData.append("nameIv", nameIvBase64)
       formData.append("nameSalt", nameSaltBase64)
       formData.append("originalSize", file.size.toString())
-      formData.append("userId", user.id)
       formData.append("expiresAt", expiresAt || "")
 
       const response = await fetch(`/api/files/${selectedFile.id}/share`, {
         method: "POST",
         body: formData,
+        headers: {
+          Authorization: `Bearer ${user.id}`,
+        },
       })
 
       const data = await response.json()
@@ -360,7 +382,8 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
       } else {
         throw new Error("Failed to create share")
       }
-    } catch {
+    } catch (e) {
+      console.error("Share creation error:", e)
       showAlert("Share Failed", "Failed to create share link.", "error")
     }
   }
@@ -369,8 +392,9 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
     try {
       const response = await fetch(`/api/files/${file.id}/share`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id }),
+        headers: {
+          Authorization: `Bearer ${user.id}`,
+        },
       })
 
       if (response.ok) {
@@ -386,8 +410,11 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
 
   const handleFileDelete = async (fileId: string) => {
     try {
-      const response = await fetch(`/api/files/${fileId}?userId=${user.id}`, {
+      const response = await fetch(`/api/files/${fileId}`, {
         method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${user.id}`,
+        },
       })
 
       if (response.ok) {

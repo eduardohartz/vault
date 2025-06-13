@@ -9,12 +9,12 @@ export async function POST(request: NextRequest) {
     const userCount = await prisma.user.count()
 
     if (userCount >= maxUsers) {
-      return NextResponse.json({ error: `Maximum number of users (${maxUsers}) reached` }, { status: 400 })
+      return NextResponse.json({ error: `Maximum number of users reached` }, { status: 400 })
     }
 
     const existingUser = await prisma.user.findFirst({
       where: {
-        OR: [{ username }, { credentialId }],
+        OR: [{ username: username.trim().toLowerCase() }, { credentialId }],
       },
     })
 
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
 
     const newUser = await prisma.user.create({
       data: {
-        username,
+        username: username.trim().toLowerCase(),
         credentialId,
         publicKey,
       },

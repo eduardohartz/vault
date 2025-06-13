@@ -3,10 +3,10 @@ import path from "node:path"
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 
-export async function GET(request: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   try {
     const sharedFile = await prisma.sharedFile.findUnique({
-      where: { shareToken: params.token },
+      where: { shareToken: (await params).token },
       include: {
         file: false,
       },

@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
     }
 
     const existingUser = await prisma.user.findUnique({
-      where: { username: username.trim() },
+      where: { username: username.trim().toLowerCase() },
     })
 
     const userCount = await prisma.user.count()

@@ -14,11 +14,10 @@ async function ensureDirectoryExists() {
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const userId = searchParams.get("userId")
+    const userId = request.headers.get("Authorization")?.replace("Bearer ", "")
 
     if (!userId) {
-      return NextResponse.json({ error: "User ID required" }, { status: 400 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const files = await prisma.file.findMany({
@@ -44,10 +43,14 @@ export async function POST(request: NextRequest) {
     const nameIv = formData.get("nameIv") as string
     const nameSalt = formData.get("nameSalt") as string
     const originalSize = Number.parseInt(formData.get("originalSize") as string)
-    const userId = formData.get("userId") as string
+    const userId = request.headers.get("Authorization")?.replace("Bearer ", "")
 
-    if (!encryptedData || !iv || !salt || !encryptedName || !nameIv || !nameSalt || !originalSize || !userId) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    if (!encryptedData || !iv || !salt || !encryptedName || !nameIv || !nameSalt || !originalSize) {
+      return NextResponse.json({ error: "Bad Request" }, { status: 400 })
     }
 
     const fileId = crypto.randomUUID()
@@ -75,8 +78,7 @@ export async function POST(request: NextRequest) {
     })
 
     return NextResponse.json({ success: true, file: newFile })
-  } catch (e) {
-    console.error("File upload error:", e)
+  } catch {
     return NextResponse.json({ error: "Upload failed" }, { status: 500 })
   }
 }

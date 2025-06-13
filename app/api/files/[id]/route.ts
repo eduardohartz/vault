@@ -7,17 +7,27 @@ const ENCRYPTED_FILES_DIR = process.env.ENCRYPTED_FILES_DIR || "./encrypted_file
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { searchParams } = new URL(request.url)
-    const userId = searchParams.get("userId")
+    const userId = request.headers.get("Authorization")?.replace("Bearer ", "")
 
     if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 400 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const fileRecord = await prisma.file.findFirst({
       where: {
         id: (await params).id,
         userId,
+      },
+      select: {
+        id: true,
+        encryptedName: true,
+        originalSize: true,
+        uploadedAt: true,
+        salt: true,
+        iv: true,
+        nameSalt: true,
+        nameIv: true,
+        encryptedPath: true,
       },
     })
 
@@ -43,11 +53,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { searchParams } = new URL(request.url)
-    const userId = searchParams.get("userId")
+    const userId = request.headers.get("Authorization")?.replace("Bearer ", "")
 
     if (!userId) {
-      return NextResponse.json({ error: "Error fetching file" }, { status: 400 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const fileRecord = await prisma.file.findFirst({

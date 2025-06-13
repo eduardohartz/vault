@@ -16,11 +16,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const nameIv = formData.get("nameIv") as string
     const nameSalt = formData.get("nameSalt") as string
     const originalSize = Number.parseInt(formData.get("originalSize") as string)
-    const userId = formData.get("userId") as string
     const expiresAt = formData.get("expiresAt") as string
+    const userId = request.headers.get("Authorization")?.replace("Bearer ", "")
 
     if (!userId) {
-      return NextResponse.json({ error: "User ID required" }, { status: 400 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const file = await prisma.file.findFirst({
@@ -81,11 +81,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { searchParams } = new URL(request.url)
-    const userId = searchParams.get("userId")
+    const userId = request.headers.get("Authorization")?.replace("Bearer ", "")
 
     if (!userId) {
-      return NextResponse.json({ error: "User ID required" }, { status: 400 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const share = await prisma.sharedFile.findUnique({
@@ -114,10 +113,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { userId } = await request.json()
+    const userId = request.headers.get("Authorization")?.replace("Bearer ", "")
 
     if (!userId) {
-      return NextResponse.json({ error: "User ID required" }, { status: 400 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const file = await prisma.file.findUnique({

@@ -20,6 +20,7 @@ export default function Home() {
 
   const handleLogout = () => {
     setUser(null)
+    window.location.reload()
   }
 
   if (!user) {
