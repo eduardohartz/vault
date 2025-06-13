@@ -3,6 +3,7 @@
 import { useState } from "react"
 import AuthPage from "@/components/auth-page"
 import FileManager from "@/components/file-manager"
+import Inactivity from "@/components/inactivity"
 
 export default function Home() {
   const [user, setUser] = useState<{
@@ -25,5 +26,10 @@ export default function Home() {
     return <AuthPage onAuthenticated={handleAuthenticated} />
   }
 
-  return <FileManager user={user} onLogout={handleLogout} />
+  return (
+    <>
+      <Inactivity />
+      <FileManager user={user} onLogout={handleLogout} />
+    </>
+  )
 }
