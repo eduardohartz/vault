@@ -2,7 +2,6 @@
 
 import type React from "react"
 
-import { Buffer } from "node:buffer"
 import {
   Button,
   Card,
