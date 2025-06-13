@@ -43,7 +43,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const shareToken = crypto.randomUUID()
 
-    const sharedFilePath = `shared_${shareToken}.bin`
+    const sharedFilePath = `shared_${shareToken}.enc`
     const sharedFileFullPath = path.join(ENCRYPTED_FILES_DIR, sharedFilePath)
 
     await fs.writeFile(sharedFileFullPath, Buffer.from(encryptedData, "base64"))
