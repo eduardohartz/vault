@@ -1,13 +1,6 @@
 "use client"
 
-import {
-  Button,
-  Modal,
-  ModalBody,
-  ModalContent,
-  ModalFooter,
-  ModalHeader,
-} from "@heroui/react"
+import { Button, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from "@heroui/react"
 import { AlertTriangle, CheckCircle, Info, XCircle } from "lucide-react"
 
 type AlertModalProps = {
@@ -18,13 +11,7 @@ type AlertModalProps = {
   type: "success" | "error" | "warning" | "info"
 }
 
-export default function AlertModal({
-  isOpen,
-  onClose,
-  title,
-  message,
-  type,
-}: AlertModalProps) {
+export default function AlertModal({ isOpen, onClose, title, message, type }: AlertModalProps) {
   const getIcon = () => {
     switch (type) {
       case "success":
@@ -52,12 +39,7 @@ export default function AlertModal({
   }
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      placement="center"
-      backdrop="opaque"
-    >
+    <Modal isOpen={isOpen} onClose={onClose} placement="center" backdrop="opaque">
       <ModalContent>
         <ModalHeader className="flex items-center gap-2">
           {getIcon()}

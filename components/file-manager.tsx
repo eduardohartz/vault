@@ -22,7 +22,7 @@ import {
   Spinner,
   useDisclosure,
 } from "@heroui/react"
-import { Copy, Download, FileIcon, Link, LogOut, Moon, MoreVertical, Share, ShareIcon as ShareOff, Shield, Sun, Trash2, Upload } from "lucide-react"
+import { Copy, Download, FileIcon, FileLock2, Link, LogOut, Moon, MoreVertical, Share, ShareIcon as ShareOff, Shield, Sun, Trash2, Upload } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useEffect, useRef, useState } from "react"
 import AlertModal from "@/components/alert-modal"
@@ -75,6 +75,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
   const { theme, setTheme } = useTheme()
 
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure()
+  const { isOpen: isDeleteAccountOpen, onOpen: onDeleteAccountOpen, onClose: onDeleteAccountClose } = useDisclosure()
   const { isOpen: isShareOpen, onOpen: onShareOpen, onClose: onShareClose } = useDisclosure()
   const { isOpen: isShareConfirmOpen, onOpen: onShareConfirmOpen, onClose: onShareConfirmClose } = useDisclosure()
   const { isOpen: isAlertOpen, onOpen: onAlertOpen, onClose: onAlertClose } = useDisclosure()
@@ -430,6 +431,25 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
     }
   }
 
+  const handleAccountDelete = async (user: { id: string, shareKey: string }) => {
+    onDeleteAccountClose()
+    try {
+      const response = await fetch(`/api/auth/delete`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${user.id}`,
+        },
+      })
+      if (response.ok) {
+        handleLogout()
+      } else {
+        showAlert("Delete Failed", "Failed to delete account. Please try again later.", "error")
+      }
+    } catch {
+      showAlert("Delete Failed", "Failed to delete account. Please try again later.", "error")
+    }
+  }
+
   const copyToClipboard = async (text: string, label: string) => {
     try {
       await navigator.clipboard.writeText(text)
@@ -487,6 +507,9 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
                   <DropdownItem key="copy-share-key" startContent={<Share className="w-4 h-4" />} onPress={() => copyToClipboard(user.shareKey, "Share key")}>
                     Copy Share Key
                   </DropdownItem>
+                  <DropdownItem key="delete-account" startContent={<Trash2 className="w-4 h-4" />} onPress={() => onDeleteAccountOpen()} color="danger" className="text-danger">
+                    Delete Account
+                  </DropdownItem>
                 </DropdownMenu>
               </Dropdown>
 
@@ -520,38 +543,45 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
           </Card>
         )}
 
-        <Card className="mb-6">
-          <CardHeader>
-            <h2 className="font-semibold text-lg">Upload Files</h2>
-          </CardHeader>
-          <CardBody>
+        <Card className="mb-6 p-1">
+          <CardHeader className="flex justify-between items-center">
+            <div className="flex flex-col items-start">
+              <h2 className="font-semibold text-lg">Upload Files</h2>
+              <div className="flex items-center space-x-1 mt-1">
+                <FileLock2 className="w-4 h-4" />
+                <p className="text-default-600 text-sm"> Files are end-to-end encrypted</p>
+              </div>
+            </div>
             <div className="flex items-center space-x-4">
               <input ref={fileInputRef} type="file" onChange={handleFileUpload} className="hidden" disabled={isUploading} />
+
+              {isUploading && (
+                <div className="flex-1 w-72">
+                  <Progress value={uploadProgress} color="primary" size="sm" showValueLabel />
+                </div>
+              )}
 
               <Button color="primary" onPress={() => fileInputRef.current?.click()} isDisabled={isUploading} startContent={<Upload className="w-4 h-4" />}>
                 Choose File
               </Button>
-
-              {isUploading && (
-                <div className="flex-1 max-w-xs">
-                  <Progress value={uploadProgress} color="primary" size="sm" showValueLabel />
-                </div>
-              )}
             </div>
-
-            <p className="mt-2 text-default-600 text-sm">🔒 Files are end-to-end encrypted</p>
-          </CardBody>
+          </CardHeader>
         </Card>
 
         <Card>
-          <CardHeader>
-            <h2 className="font-semibold text-lg">
-              Your Files (
+          <CardHeader className="flex justify-between items-center px-5 border-divider border-b">
+            <h2 className="font-semibold text-md">
+              Vault Files (
               {files.length}
               )
             </h2>
+            <h2 className="text-md">
+              {formatFileSize(files.reduce((sum, file) => sum + file.originalSize, 0))}
+              {" "}
+              / ∞
+            </h2>
           </CardHeader>
-          <CardBody>
+          <CardBody className="bg-foreground-100/50 m-5 ml-5 pt-0 rounded-lg w-auto">
             {isLoading ? (
               <div className="py-8 text-center">
                 <Spinner size="lg" />
@@ -563,11 +593,11 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
                 <table className="w-full">
                   <thead>
                     <tr className="border-divider border-b">
-                      <th className="px-4 py-3 font-medium text-left">NAME</th>
-                      <th className="px-4 py-3 font-medium text-left">SIZE</th>
-                      <th className="px-4 py-3 font-medium text-left">UPLOADED</th>
-                      <th className="px-4 py-3 font-medium text-left">STATUS</th>
-                      <th className="px-4 py-3 font-medium text-right">ACTIONS</th>
+                      <th className="px-4 py-3 font-medium text-left">Name</th>
+                      <th className="px-4 py-3 font-medium text-left">Size</th>
+                      <th className="px-4 py-3 font-medium text-left">Uploaded</th>
+                      <th className="px-4 py-3 font-medium text-left">Status</th>
+                      <th className="px-4 py-3 font-medium text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -614,7 +644,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
                                 </DropdownMenu>
                               </Dropdown>
                             ) : (
-                              <Button isIconOnly size="sm" variant="light" color="secondary" onPress={() => handleFileShare(file)} aria-label="Share">
+                              <Button isIconOnly size="sm" variant="light" color="default" onPress={() => handleFileShare(file)} aria-label="Share">
                                 <Share className="w-4 h-4" />
                               </Button>
                             )}
@@ -737,6 +767,23 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
       </Modal>
 
       <AlertModal isOpen={isAlertOpen} onClose={onAlertClose} title={alertConfig.title} message={alertConfig.message} type={alertConfig.type} />
+
+      <Modal isOpen={isDeleteAccountOpen} onClose={onDeleteAccountClose} placement="center" backdrop="opaque">
+        <ModalContent>
+          <ModalHeader>Delete Account</ModalHeader>
+          <ModalBody>
+            <p>Are you sure you want to delete your account and all files? This action cannot be undone.</p>
+          </ModalBody>
+          <ModalFooter>
+            <Button color="primary" onPress={onDeleteAccountClose}>
+              Cancel
+            </Button>
+            <Button color="danger" onPress={() => handleAccountDelete(user)}>
+              Confirm
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </div>
   )
 }

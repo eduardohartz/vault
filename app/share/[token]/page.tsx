@@ -162,7 +162,7 @@ export default function SharePage() {
     if (!fileData?.expiresAt) {
       return "Never"
     }
-    return formatDate(fileData.expiresAt.getTime().toString())
+    return formatDate(fileData.expiresAt.toString())
   }
 
   if (isLoading) {
@@ -189,17 +189,17 @@ export default function SharePage() {
   }
 
   return (
-    <div className="bg-background p-4 min-h-screen">
+    <div className="bg-background p-10 min-h-screen">
       <Inactivity />
       <div className="mx-auto max-w-2xl">
         <Card>
-          <CardHeader className="text-center">
-            <div className="flex justify-center mb-4">
+          <CardHeader className="flex justify-between items-center text-center">
+            <div className="flex justify-center items-center space-x-2">
               <div className="bg-primary/10 p-3 rounded-full">
                 <Shield className="w-8 h-8 text-primary" />
               </div>
+              <h1 className="font-bold text-2xl">Shared File</h1>
             </div>
-            <h1 className="font-bold text-2xl">Shared File</h1>
             {fileData?.expiresAt && (
               <p className="text-default-500 text-sm">
                 Expires:

@@ -88,10 +88,6 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       } catch (error) {
         console.error("Failed to delete shared file from disk:", error)
       }
-
-      await prisma.sharedFile.delete({
-        where: { id: shared.id },
-      })
     }
 
     await prisma.file.delete({
