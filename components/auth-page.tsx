@@ -236,12 +236,12 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
   if (!isSupported) {
     return (
       <div className="flex justify-center items-center bg-background p-4 min-h-screen">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <h1 className="font-bold text-danger text-2xl">PRF Not Supported</h1>
+        <Card className="p-2 w-full max-w-md">
+          <CardHeader className="border-divider border-b text-center">
+            <h1 className="font-bold text-danger text-xl">PRF Not Supported</h1>
           </CardHeader>
-          <CardBody className="text-center">
-            <p className="mb-4 text-default-600">Your browser doesn't support WebAuthn PRF extension. This system requires PRF support for secure key derivation.</p>
+          <CardBody className="text-left">
+            <p className="py-3 text-default-600 text-center">Your browser doesn't support WebAuthn PRF extension. This system requires PRF support for secure key derivation.</p>
             <p className="mt-2 text-default-400 text-xs">Try using Chrome/Edge/Firefox with Windows Hello or Safari with Touch ID/Face ID.</p>
           </CardBody>
         </Card>

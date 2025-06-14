@@ -53,6 +53,7 @@ type FileItem = {
   userId: string
   decryptedName?: string
   isShared?: boolean
+  expiresAt?: string | null
 }
 
 type ShareInfo = {
@@ -118,6 +119,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
                 ...file,
                 decryptedName,
                 isShared: shareData,
+                expiresAt: shareData?.expiresAt || null,
               }
             } catch {
               return {
@@ -490,34 +492,63 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
             </div>
 
             <div className="flex items-center space-x-3">
-              <Chip variant="flat" color="primary" size="sm">
+              <Chip
+                variant="flat"
+                color="primary"
+                size="sm"
+              >
                 {user.username}
               </Chip>
 
               <Dropdown>
                 <DropdownTrigger>
-                  <Button isIconOnly variant="ghost">
+                  <Button
+                    isIconOnly
+                    variant="ghost"
+                  >
                     <MoreVertical className="w-4 h-4" />
                   </Button>
                 </DropdownTrigger>
                 <DropdownMenu>
-                  <DropdownItem key="share-key" startContent={<Copy className="w-4 h-4" />} onPress={() => setShowShareKey(!showShareKey)}>
+                  <DropdownItem
+                    key="share-key"
+                    startContent={<Copy className="w-4 h-4" />}
+                    onPress={() => setShowShareKey(!showShareKey)}
+                  >
                     {showShareKey ? "Hide Share Key" : "Show Share Key"}
                   </DropdownItem>
-                  <DropdownItem key="copy-share-key" startContent={<Share className="w-4 h-4" />} onPress={() => copyToClipboard(user.shareKey, "Share key")}>
+                  <DropdownItem
+                    key="copy-share-key"
+                    startContent={<Share className="w-4 h-4" />}
+                    onPress={() => copyToClipboard(user.shareKey, "Share key")}
+                  >
                     Copy Share Key
                   </DropdownItem>
-                  <DropdownItem key="delete-account" startContent={<Trash2 className="w-4 h-4" />} onPress={() => onDeleteAccountOpen()} color="danger" className="text-danger">
+                  <DropdownItem
+                    key="delete-account"
+                    startContent={<Trash2 className="w-4 h-4" />}
+                    onPress={() => onDeleteAccountOpen()}
+                    color="danger"
+                    className="text-danger"
+                  >
                     Delete Account
                   </DropdownItem>
                 </DropdownMenu>
               </Dropdown>
 
-              <Button isIconOnly variant="ghost" onPress={() => setTheme(theme === "dark" ? "light" : "dark")}>
+              <Button
+                isIconOnly
+                variant="ghost"
+                onPress={() => setTheme(theme === "dark" ? "light" : "dark")}
+              >
                 {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               </Button>
 
-              <Button variant="ghost" onPress={handleLogout} startContent={<LogOut className="w-4 h-4" />}>
+              <Button
+                variant="ghost"
+                onPress={handleLogout}
+                startContent={<LogOut className="w-4 h-4" />}
+              >
                 Logout
               </Button>
             </div>
@@ -534,7 +565,11 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
             <CardBody>
               <div className="flex items-center space-x-2">
                 <code className="flex-1 bg-default-100 p-2 rounded text-sm break-all">{user.shareKey}</code>
-                <Button size="sm" onPress={() => copyToClipboard(user.shareKey, "Share key")} startContent={<Copy className="w-4 h-4" />}>
+                <Button
+                  size="sm"
+                  onPress={() => copyToClipboard(user.shareKey, "Share key")}
+                  startContent={<Copy className="w-4 h-4" />}
+                >
                   Copy
                 </Button>
               </div>
@@ -553,15 +588,31 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              <input ref={fileInputRef} type="file" onChange={handleFileUpload} className="hidden" disabled={isUploading} />
+              <input
+                ref={fileInputRef}
+                type="file"
+                onChange={handleFileUpload}
+                className="hidden"
+                disabled={isUploading}
+              />
 
               {isUploading && (
                 <div className="flex-1 w-72">
-                  <Progress value={uploadProgress} color="primary" size="sm" showValueLabel />
+                  <Progress
+                    value={uploadProgress}
+                    color="primary"
+                    size="sm"
+                    showValueLabel
+                  />
                 </div>
               )}
 
-              <Button color="primary" onPress={() => fileInputRef.current?.click()} isDisabled={isUploading} startContent={<Upload className="w-4 h-4" />}>
+              <Button
+                color="primary"
+                onPress={() => fileInputRef.current?.click()}
+                isDisabled={isUploading}
+                startContent={<Upload className="w-4 h-4" />}
+              >
                 Choose File
               </Button>
             </div>
@@ -602,7 +653,10 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
                   </thead>
                   <tbody>
                     {files.map((file) => (
-                      <tr key={file.id} className="border-divider border-b">
+                      <tr
+                        key={file.id}
+                        className="border-divider border-b"
+                      >
                         <td className="px-4 py-3">
                           <div className="flex items-center space-x-2">
                             <FileIcon className="w-4 h-4 text-default-400" />
@@ -613,38 +667,85 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
                         <td className="px-4 py-3">{formatDate(file.uploadedAt)}</td>
                         <td className="px-4 py-3">
                           {file.isShared ? (
-                            <Chip size="sm" color="success" variant="flat">
-                              Shared
-                            </Chip>
+                            file.expiresAt && new Date(file.expiresAt).getTime() <= Date.now() ? (
+                              <Chip
+                                size="sm"
+                                color="warning"
+                                variant="flat"
+                              >
+                                Shared (expired)
+                              </Chip>
+                            ) : (
+                              <Chip
+                                size="sm"
+                                color="success"
+                                variant="flat"
+                              >
+                                Shared
+                              </Chip>
+                            )
                           ) : (
-                            <Chip size="sm" color="default" variant="flat">
+                            <Chip
+                              size="sm"
+                              color="default"
+                              variant="flat"
+                            >
                               Private
                             </Chip>
                           )}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex justify-end space-x-2">
-                            <Button isIconOnly size="sm" variant="light" onPress={() => handleFileDownload(file)} aria-label="Download">
+                            <Button
+                              isIconOnly
+                              size="sm"
+                              variant="light"
+                              onPress={() => handleFileDownload(file)}
+                              aria-label="Download"
+                            >
                               <Download className="w-4 h-4" />
                             </Button>
                             {file.isShared ? (
                               <Dropdown>
                                 <DropdownTrigger>
-                                  <Button isIconOnly size="sm" variant="light" color="success" aria-label="Share options">
+                                  <Button
+                                    isIconOnly
+                                    size="sm"
+                                    variant="light"
+                                    color="success"
+                                    aria-label="Share options"
+                                  >
                                     <Share className="w-4 h-4" />
                                   </Button>
                                 </DropdownTrigger>
                                 <DropdownMenu>
-                                  <DropdownItem key="view-share" startContent={<Share className="w-4 h-4" />} onPress={() => handleFileShare(file)}>
+                                  <DropdownItem
+                                    key="view-share"
+                                    startContent={<Share className="w-4 h-4" />}
+                                    onPress={() => handleFileShare(file)}
+                                  >
                                     View Share Link
                                   </DropdownItem>
-                                  <DropdownItem key="unshare" startContent={<ShareOff className="w-4 h-4" />} className="text-danger" color="danger" onPress={() => handleUnshare(file)}>
+                                  <DropdownItem
+                                    key="unshare"
+                                    startContent={<ShareOff className="w-4 h-4" />}
+                                    className="text-danger"
+                                    color="danger"
+                                    onPress={() => handleUnshare(file)}
+                                  >
                                     Unshare File
                                   </DropdownItem>
                                 </DropdownMenu>
                               </Dropdown>
                             ) : (
-                              <Button isIconOnly size="sm" variant="light" color="default" onPress={() => handleFileShare(file)} aria-label="Share">
+                              <Button
+                                isIconOnly
+                                size="sm"
+                                variant="light"
+                                color="default"
+                                onPress={() => handleFileShare(file)}
+                                aria-label="Share"
+                              >
                                 <Share className="w-4 h-4" />
                               </Button>
                             )}
@@ -673,7 +774,10 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
         </Card>
       </div>
 
-      <Modal isOpen={isDeleteOpen} onClose={onDeleteClose}>
+      <Modal
+        isOpen={isDeleteOpen}
+        onClose={onDeleteClose}
+      >
         <ModalContent>
           <ModalHeader>Delete File</ModalHeader>
           <ModalBody>
@@ -690,19 +794,34 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
             <p className="text-default-600 text-sm">This action cannot be undone and will also remove any shared links.</p>
           </ModalBody>
           <ModalFooter>
-            <Button variant="ghost" onPress={onDeleteClose}>
+            <Button
+              variant="ghost"
+              onPress={onDeleteClose}
+            >
               Cancel
             </Button>
-            <Button color="danger" onPress={() => selectedFile && handleFileDelete(selectedFile.id)}>
+            <Button
+              color="danger"
+              onPress={() => selectedFile && handleFileDelete(selectedFile.id)}
+            >
               Delete
             </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
 
-      <ShareConfirmationModal isOpen={isShareConfirmOpen} onClose={onShareConfirmClose} onConfirm={handleShareConfirm} fileName={selectedFile?.decryptedName || ""} userShareKey={user.shareKey} />
+      <ShareConfirmationModal
+        isOpen={isShareConfirmOpen}
+        onClose={onShareConfirmClose}
+        onConfirm={handleShareConfirm}
+        fileName={selectedFile?.decryptedName || ""}
+        userShareKey={user.shareKey}
+      />
 
-      <Modal isOpen={isShareOpen} onClose={onShareClose}>
+      <Modal
+        isOpen={isShareOpen}
+        onClose={onShareClose}
+      >
         <ModalContent>
           <ModalHeader>
             Share "
@@ -720,8 +839,16 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
               <div>
                 <label className="font-medium text-sm">Share Link:</label>
                 <div className="flex items-center space-x-2 mt-1">
-                  <Input value={shareUrl} readOnly size="sm" startContent={<Link className="w-4 h-4" />} />
-                  <Button size="sm" onPress={() => copyToClipboard(shareUrl, "Share link")}>
+                  <Input
+                    value={shareUrl}
+                    readOnly
+                    size="sm"
+                    startContent={<Link className="w-4 h-4" />}
+                  />
+                  <Button
+                    size="sm"
+                    onPress={() => copyToClipboard(shareUrl, "Share link")}
+                  >
                     Copy
                   </Button>
                 </div>
@@ -730,8 +857,16 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
               <div>
                 <label className="font-medium text-sm">Your Share Key:</label>
                 <div className="flex items-center space-x-2 mt-1">
-                  <Input value={user.shareKey} readOnly size="sm" startContent={<Shield className="w-4 h-4" />} />
-                  <Button size="sm" onPress={() => copyToClipboard(user.shareKey, "Share key")}>
+                  <Input
+                    value={user.shareKey}
+                    readOnly
+                    size="sm"
+                    startContent={<Shield className="w-4 h-4" />}
+                  />
+                  <Button
+                    size="sm"
+                    onPress={() => copyToClipboard(user.shareKey, "Share key")}
+                  >
                     Copy
                   </Button>
                 </div>
@@ -754,31 +889,56 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
                     Expires:
                     {shareInfo.expiresAt ? formatDate(shareInfo.expiresAt) : "Never"}
                   </p>
+                  {shareInfo.expiresAt && new Date(shareInfo.expiresAt).getTime() <= Date.now() ? (
+                    <p className="mt-1 text-danger">This share has expired. Delete it and create a new one to share the file again.</p>
+                  ) : (
+                    <p className="mt-1 text-success">This share is active.</p>
+                  )}
                 </div>
               </div>
             )}
           </ModalBody>
           <ModalFooter>
-            <Button color="primary" onPress={onShareClose}>
+            <Button
+              color="primary"
+              onPress={onShareClose}
+            >
               Done
             </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
 
-      <AlertModal isOpen={isAlertOpen} onClose={onAlertClose} title={alertConfig.title} message={alertConfig.message} type={alertConfig.type} />
+      <AlertModal
+        isOpen={isAlertOpen}
+        onClose={onAlertClose}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        type={alertConfig.type}
+      />
 
-      <Modal isOpen={isDeleteAccountOpen} onClose={onDeleteAccountClose} placement="center" backdrop="opaque">
+      <Modal
+        isOpen={isDeleteAccountOpen}
+        onClose={onDeleteAccountClose}
+        placement="center"
+        backdrop="opaque"
+      >
         <ModalContent>
           <ModalHeader>Delete Account</ModalHeader>
           <ModalBody>
             <p>Are you sure you want to delete your account and all files? This action cannot be undone.</p>
           </ModalBody>
           <ModalFooter>
-            <Button color="primary" onPress={onDeleteAccountClose}>
+            <Button
+              color="primary"
+              onPress={onDeleteAccountClose}
+            >
               Cancel
             </Button>
-            <Button color="danger" onPress={() => handleAccountDelete(user)}>
+            <Button
+              color="danger"
+              onPress={() => handleAccountDelete(user)}
+            >
               Confirm
             </Button>
           </ModalFooter>

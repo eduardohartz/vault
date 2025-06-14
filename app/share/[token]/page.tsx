@@ -176,12 +176,12 @@ export default function SharePage() {
   if (error) {
     return (
       <div className="flex justify-center items-center bg-background p-4 min-h-screen">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <h1 className="font-bold text-danger text-2xl">Share Not Found</h1>
+        <Card className="p-2 w-full max-w-md">
+          <CardHeader className="border-divider border-b text-center">
+            <h1 className="font-bold text-danger text-xl">Share Not Found</h1>
           </CardHeader>
           <CardBody className="text-center">
-            <p className="text-default-600">{error}</p>
+            <p className="py-3 text-default-600">{error}</p>
           </CardBody>
         </Card>
       </div>
