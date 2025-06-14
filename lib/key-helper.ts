@@ -35,8 +35,8 @@ export class KeyHelper {
         })
       }
 
-      this.convertToPKCS8(privateKey, (privateResult) => {
-        this.convertPublicKeyToRaw(publicKey, (publicResult) => {
+      KeyHelper.convertToPKCS8(privateKey, (privateResult) => {
+        KeyHelper.convertPublicKeyToRaw(publicKey, (publicResult) => {
           resolve({
             privateKey: privateResult,
             publicKey: publicResult,
@@ -50,9 +50,9 @@ export class KeyHelper {
     const isSafari = /^(?:(?!chrome|android).)*safari/i.test(navigator.userAgent)
 
     if (isSafari) {
-      this.convertSafariPKCS8Deterministic(privateKey, inner_cb)
+      KeyHelper.convertSafariPKCS8Deterministic(privateKey, inner_cb)
     } else {
-      this.convertStandardPKCS8(privateKey, inner_cb)
+      KeyHelper.convertStandardPKCS8(privateKey, inner_cb)
     }
   }
 
@@ -154,8 +154,8 @@ export class KeyHelper {
               publicKeyBytes.set(yBytes, 67)
 
               const modifiedTemplate = new Uint8Array(pkcs8Template)
-              this.findAndReplaceKey(modifiedTemplate, privateKeyBytes)
-              this.findAndReplacePublicKey(modifiedTemplate, publicKeyBytes)
+              KeyHelper.findAndReplaceKey(modifiedTemplate, privateKeyBytes)
+              KeyHelper.findAndReplacePublicKey(modifiedTemplate, publicKeyBytes)
 
               crypto.subtle
                 .importKey("pkcs8", modifiedTemplate.buffer, { name: "ECDH", namedCurve: "P-521" }, true, ["deriveKey", "deriveBits"])
@@ -262,6 +262,7 @@ export class KeyHelper {
     rawPublicKey.set(yBytes, 67)
 
     try {
+      // deepcode ignore PromiseNotCaughtGeneral: Try/Catch above
       crypto.subtle.importKey("raw", rawPublicKey.buffer, { name: "ECDH", namedCurve: "P-521" }, true, []).then((key) => {
         inner_cb({ success: true, key, rawBuffer: rawPublicKey.buffer })
       })

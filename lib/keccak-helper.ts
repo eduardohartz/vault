@@ -54,19 +54,19 @@ export class KeccakHelper {
   ]
 
   static keccak256(hexStr: string): string {
-    return this.lazyKeccak(256, hexStr)
+    return KeccakHelper.lazyKeccak(256, hexStr)
   }
 
   static strictHexKeccak256(hexStr: string): string | null {
-    return this.strictHexKeccak(256, hexStr)
+    return KeccakHelper.strictHexKeccak(256, hexStr)
   }
 
   static strKeccak256(str: string): string {
-    return this.strKeccak(256, str)
+    return KeccakHelper.strKeccak(256, str)
   }
 
   static keccak(bits: number, message: number[]): string {
-    return this.update(this.createKeccakState(bits), message)
+    return KeccakHelper.update(KeccakHelper.createKeccakState(bits), message)
   }
 
   static createKeccakState(bits: number): KeccakState {
@@ -99,7 +99,7 @@ export class KeccakHelper {
       }
 
       for (let i = start; index < message.length && i < byteCount; ++index) {
-        blocks[i >> 2] |= message[index] << this.SHIFT[i++ & 3]
+        blocks[i >> 2] |= message[index] << KeccakHelper.SHIFT[i++ & 3]
       }
 
       state.lastByteIndex = start
@@ -111,7 +111,7 @@ export class KeccakHelper {
           s[i] ^= blocks[i]
         }
 
-        this.f(s)
+        KeccakHelper.f(s)
         reset = true
       } else {
         state.start = start
@@ -119,7 +119,7 @@ export class KeccakHelper {
     }
 
     const i = state.lastByteIndex
-    blocks[i >> 2] |= this.KECCAK_PADDING[i & 3]
+    blocks[i >> 2] |= KeccakHelper.KECCAK_PADDING[i & 3]
 
     if (state.lastByteIndex === byteCount) {
       blocks[0] = blocks[blockCount]
@@ -134,7 +134,7 @@ export class KeccakHelper {
       s[i] ^= blocks[i]
     }
 
-    this.f(s)
+    KeccakHelper.f(s)
 
     let hex = ""
     let j = 0
@@ -143,18 +143,18 @@ export class KeccakHelper {
       for (let i = 0; i < blockCount && j < outputBlocks; ++i, ++j) {
         const block = s[i]
         hex +=
-          this.HEX_CHARS[(block >> 4) & 0x0F] +
-          this.HEX_CHARS[block & 0x0F] +
-          this.HEX_CHARS[(block >> 12) & 0x0F] +
-          this.HEX_CHARS[(block >> 8) & 0x0F] +
-          this.HEX_CHARS[(block >> 20) & 0x0F] +
-          this.HEX_CHARS[(block >> 16) & 0x0F] +
-          this.HEX_CHARS[(block >> 28) & 0x0F] +
-          this.HEX_CHARS[(block >> 24) & 0x0F]
+          KeccakHelper.HEX_CHARS[(block >> 4) & 0x0F] +
+          KeccakHelper.HEX_CHARS[block & 0x0F] +
+          KeccakHelper.HEX_CHARS[(block >> 12) & 0x0F] +
+          KeccakHelper.HEX_CHARS[(block >> 8) & 0x0F] +
+          KeccakHelper.HEX_CHARS[(block >> 20) & 0x0F] +
+          KeccakHelper.HEX_CHARS[(block >> 16) & 0x0F] +
+          KeccakHelper.HEX_CHARS[(block >> 28) & 0x0F] +
+          KeccakHelper.HEX_CHARS[(block >> 24) & 0x0F]
       }
 
       if (j % blockCount === 0) {
-        this.f(s)
+        KeccakHelper.f(s)
       }
     }
 
@@ -394,8 +394,8 @@ export class KeccakHelper {
       s[48] = b48 ^ (~b40 & b42)
       s[49] = b49 ^ (~b41 & b43)
 
-      s[0] ^= this.RC[n]
-      s[1] ^= this.RC[n + 1]
+      s[0] ^= KeccakHelper.RC[n]
+      s[1] ^= KeccakHelper.RC[n + 1]
     }
   }
 
@@ -411,16 +411,16 @@ export class KeccakHelper {
     for (let i = 0; i < hex.length; i += 2) {
       const newStr = Number.parseInt(hex.slice(i, i + 2), 16)
       if (newStr > 255) {
-        return this.strKeccak(bits, hex)
+        return KeccakHelper.strKeccak(bits, hex)
       }
       msg.push(newStr)
     }
-    return this.keccak(bits, msg)
+    return KeccakHelper.keccak(bits, msg)
   }
 
   static lazyKeccak(bits: number, hex: string): string {
     if (hex.length % 2 !== 0) {
-      return this.strKeccak(bits, hex)
+      return KeccakHelper.strKeccak(bits, hex)
     }
     if (hex.startsWith("0x")) {
       hex = hex.slice(2)
@@ -430,17 +430,17 @@ export class KeccakHelper {
     for (let i = 0; i < hex.length; i += 2) {
       const newStr = Number.parseInt(hex.slice(i, i + 2), 16)
       if (Number.isNaN(newStr) || newStr > 255) {
-        return this.strKeccak(bits, hex)
+        return KeccakHelper.strKeccak(bits, hex)
       }
       msg.push(newStr)
     }
-    return this.keccak(bits, msg)
+    return KeccakHelper.keccak(bits, msg)
   }
 
   static strKeccak(bits: number, str: string): string {
     const textEncoder = new TextEncoder()
     const msg: number[] = Array.from(textEncoder.encode(str))
-    return this.keccak(bits, msg)
+    return KeccakHelper.keccak(bits, msg)
   }
 }
 

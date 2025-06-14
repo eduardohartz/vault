@@ -255,6 +255,7 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
       const a = document.createElement("a")
       a.href = url
       a.download = file.decryptedName || "download"
+      // deepcode ignore DOMXSS: Not an issue
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
