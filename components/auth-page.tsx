@@ -2,7 +2,7 @@
 
 import type { SetStateAction } from "react"
 import { Button, Card, CardBody, CardHeader, Input, Spinner, useDisclosure } from "@heroui/react"
-import { CheckCircle, Key, Moon, Shield, Sun } from "lucide-react"
+import { AlertTriangle, CheckCircle, Key, Moon, Shield, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useEffect, useState } from "react"
 import AlertModal from "@/components/alert-modal"
@@ -252,7 +252,11 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
   return (
     <div className="flex justify-center items-center bg-background p-4 min-h-screen">
       <div className="top-4 right-4 absolute">
-        <Button isIconOnly variant="ghost" onPress={() => setTheme(theme === "dark" ? "light" : "dark")}>
+        <Button
+          isIconOnly
+          variant="ghost"
+          onPress={() => setTheme(theme === "dark" ? "light" : "dark")}
+        >
           {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
         </Button>
       </div>
@@ -285,7 +289,14 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
                 />
               </div>
 
-              <Button color="primary" size="lg" className="rounded-xl w-full" onPress={checkUsername} isLoading={isLoading} isDisabled={!username.trim()}>
+              <Button
+                color="primary"
+                size="lg"
+                className="rounded-xl w-full"
+                onPress={checkUsername}
+                isLoading={isLoading}
+                isDisabled={!username.trim()}
+              >
                 Continue
               </Button>
             </>
@@ -297,19 +308,38 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
                   {" "}
                   {username}
                 </p>
-                <Button size="sm" variant="ghost" onPress={resetForm} className="">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onPress={resetForm}
+                  className=""
+                >
                   Change Username
                 </Button>
               </div>
 
               {userExists ? (
-                <Button color="primary" size="lg" className="w-full" onPress={handleLogin} isLoading={isProcessing} startContent={!isProcessing && <Shield className="w-4 h-4" />}>
+                <Button
+                  color="primary"
+                  size="lg"
+                  className="w-full"
+                  onPress={handleLogin}
+                  isLoading={isProcessing}
+                  startContent={!isProcessing && <Shield className="w-4 h-4" />}
+                >
                   {isProcessing ? "Authenticating..." : "Login with Passkey"}
                 </Button>
               ) : canRegister ? (
                 <>
                   {registrationStep === "check" && (
-                    <Button color="primary" size="lg" className="w-full" onPress={handleCreatePasskey} isLoading={isProcessing} startContent={!isProcessing && <Shield className="w-4 h-4" />}>
+                    <Button
+                      color="primary"
+                      size="lg"
+                      className="w-full"
+                      onPress={handleCreatePasskey}
+                      isLoading={isProcessing}
+                      startContent={!isProcessing && <Shield className="w-4 h-4" />}
+                    >
                       {isProcessing ? "Creating Passkey..." : "Create Passkey"}
                     </Button>
                   )}
@@ -324,14 +354,26 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
                         <p className="mt-1 text-success text-xs">Now we'll authenticate with your new passkey to set up encryption keys.</p>
                       </div>
 
-                      <Button color="primary" size="lg" className="w-full" onPress={handleCompleteRegistration} isLoading={isProcessing} startContent={!isProcessing && <Key className="w-4 h-4" />}>
+                      <Button
+                        color="primary"
+                        size="lg"
+                        className="w-full"
+                        onPress={handleCompleteRegistration}
+                        isLoading={isProcessing}
+                        startContent={!isProcessing && <Key className="w-4 h-4" />}
+                      >
                         {isProcessing ? "Setting up encryption..." : "Complete Account Setup"}
                       </Button>
                     </div>
                   )}
                 </>
               ) : (
-                <Button color="danger" size="lg" className="w-full" isDisabled>
+                <Button
+                  color="danger"
+                  size="lg"
+                  className="w-full"
+                  isDisabled
+                >
                   Registration Unavailable
                 </Button>
               )}
@@ -340,7 +382,26 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
         </CardBody>
       </Card>
 
-      <AlertModal isOpen={isAlertOpen} onClose={onAlertClose} title={alertConfig.title} message={alertConfig.message} type={alertConfig.type} />
+      <div className="bottom-4 left-1/2 absolute bg-warning/10 mt-3 p-3 border border-warning/20 rounded-lg w-full max-w-md -translate-x-1/2 transform">
+        <div className="flex items-start space-x-2">
+          <AlertTriangle className="mt-0.5 min-w-4 min-h-4 text-warning" />
+          <div>
+            <p className="font-medium text-warning text-sm">Security Notice</p>
+            <p className="mt-1 text-warning text-xs">
+              To use this website, your browser and security key (or passkey manager) must support PRF (Pseudo-Random Function). Make sure you trust all installed extensions, those with access to
+              website data could potentially access your encryption keys.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <AlertModal
+        isOpen={isAlertOpen}
+        onClose={onAlertClose}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        type={alertConfig.type}
+      />
     </div>
   )
 }
