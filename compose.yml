@@ -4,7 +4,7 @@ services:
     restart: always
     environment:
       - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
-      - MAX_USER=${MAX_USER}
+      - MAX_USERS=${MAX_USERS}
       - ENCRYPTED_FILES_DIR=${ENCRYPTED_FILES_DIR}
       - PORT=${PORT}
     ports:
