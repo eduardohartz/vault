@@ -13,7 +13,7 @@ services:
       postgresql:
         condition: service_healthy
     volumes:
-      - encrypted_data:/app/${ENCRYPTED_FILES_DIR}
+      - encrypted_data:/usr/src/app/${ENCRYPTED_FILES_DIR}
 
   postgresql:
     image: postgres:16
