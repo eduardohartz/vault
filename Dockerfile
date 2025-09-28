@@ -6,6 +6,8 @@ COPY package*.json ./
 
 RUN npm install --frozen-lockfile
 
+COPY prisma ./prisma
+
 RUN npx prisma generate
 
 COPY . .
