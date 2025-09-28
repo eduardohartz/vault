@@ -1,0 +1,29 @@
+services:
+  app:
+    build: .
+    restart: always
+    environment:
+      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - MAX_USER=${MAX_USER}
+      - ENCRYPTED_FILES_DIR=${ENCRYPTED_FILES_DIR}
+      - PORT=${PORT}
+    ports:
+      - "${PORT}:${PORT}"
+    depends_on:
+      - postgresql
+    volumes:
+      - encrypted_data:/app/${ENCRYPTED_FILES_DIR}
+
+  postgresql:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
+  encrypted_data:
