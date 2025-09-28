@@ -5,6 +5,7 @@ TABLE_COUNT=$(PGPASSWORD=$POSTGRES_PASSWORD psql -h postgresql -U $POSTGRES_USER
   "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public';" | xargs)
 
 if [ "$TABLE_COUNT" -eq 0 ]; then
+  echo "Database empty, running prisma db push..."
   npx prisma db push
 fi
 

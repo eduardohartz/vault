@@ -10,7 +10,8 @@ services:
     ports:
       - "${PORT}:${PORT}"
     depends_on:
-      - postgresql
+      postgresql:
+        condition: service_healthy
     volumes:
       - encrypted_data:/app/${ENCRYPTED_FILES_DIR}
 
@@ -23,6 +24,12 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      timeout: 10s
 
 volumes:
   pgdata:
