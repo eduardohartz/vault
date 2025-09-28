@@ -16,8 +16,6 @@ RUN npm run build
 
 EXPOSE ${PORT}
 
-RUN apt-get update && apt-get install -y postgresql-client
-
 COPY entrypoint.sh /usr/src/app/entrypoint.sh
 RUN chmod +x /usr/src/app/entrypoint.sh
 
