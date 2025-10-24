@@ -1,3 +1,5 @@
+Warning: As of now, some salts/other site specific information is hardcoded, no secrets are hard coded, so it's safe to use, but maybe hold off on it until I move everything to env variables
+
 # 🔒 Vault  
 **A self-hostable, end-to-end encrypted file vault powered by passkeys**
 
