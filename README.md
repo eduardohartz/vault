@@ -40,3 +40,6 @@ docker compose up -d
 ### 5. Access your vault
 Once running, open your browser and visit:
 `http://localhost:3000` (or your configured port)
+
+## Disclaimer:
+I'm obviously not liable for the security of this software, when I made this, I got most of the very complex encryption code from FileKey, then made the rest myself, no security expert has checked the validity of the code, and while I trust it's secure, you probably shouldn't, since im a high schooler.
