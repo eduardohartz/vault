@@ -1,4 +1,4 @@
-FROM node:22.16.0
+FROM node:22.21.1-trixie-slim
 
 WORKDIR /usr/src/app
 
