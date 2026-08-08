@@ -1,9 +1,57 @@
 import { keccak256 } from "js-sha3"
+import { BufferHelper } from "./buffer-helper"
+
+/**
+ * Browser-side WebAuthn.
+ *
+ * Challenges now come from the server and the resulting credential is sent
+ * back for verification. Previously the challenge was generated here and the
+ * assertion never left the browser, so the server had no way to tell a real
+ * passkey from a fabricated login request.
+ *
+ * The PRF extension is still driven from this file rather than through a
+ * WebAuthn helper library, because PRF results are raw ArrayBuffers that do
+ * not survive the libraries' JSON serialisation.
+ */
+
+/**
+ * Fixed PRF evaluation input.
+ *
+ * Hashed with js-sha3, which has always been correct — deliberately not the
+ * project's own Keccak helper. Changing this value changes every derived key,
+ * so it must stay exactly as it is.
+ */
+const PRF_EVAL_INPUT = keccak256("very_secret_input_for_prf_abcdef1234567890")
+
+type CreationOptionsJSON = {
+  challenge: string
+  rp: { id?: string, name: string }
+  user: { id: string, name: string, displayName: string }
+  pubKeyCredParams: { alg: number, type: "public-key" }[]
+  timeout?: number
+  attestation?: AttestationConveyancePreference
+  authenticatorSelection?: AuthenticatorSelectionCriteria
+  excludeCredentials?: { id: string, type: "public-key", transports?: AuthenticatorTransport[] }[]
+}
+
+type RequestOptionsJSON = {
+  challenge: string
+  rpId?: string
+  timeout?: number
+  userVerification?: UserVerificationRequirement
+  allowCredentials?: { id: string, type: "public-key", transports?: AuthenticatorTransport[] }[]
+}
+
+function toBuffer(base64url: string): ArrayBuffer {
+  const bytes = BufferHelper.base64UrlToBytes(base64url)
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+}
+
+function fromBuffer(buffer: ArrayBuffer | null): string {
+  return buffer ? BufferHelper.bytesToBase64Url(new Uint8Array(buffer)) : ""
+}
 
 export class PasskeyManager {
-  private static rpId = typeof window !== "undefined" ? window.location.hostname : "localhost"
-  private static rpName = "EduardosVault"
-
   static async isSupported(): Promise<boolean> {
     if (typeof window === "undefined") {
       return false
@@ -21,89 +69,83 @@ export class PasskeyManager {
         return false
       }
 
-      const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
-      if (!available) {
+      if (!(await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable())) {
         return false
+      }
+
+      // getClientCapabilities is not available everywhere. When it is missing
+      // we cannot rule PRF out, so we let registration try and fail loudly
+      // rather than blocking a browser that would have worked.
+      if (typeof PublicKeyCredential.getClientCapabilities !== "function") {
+        return true
       }
 
       const capabilities = await PublicKeyCredential.getClientCapabilities()
-
-      if (capabilities["extension:prf"] === false || !capabilities["extension:prf"]) {
-        return false
-      }
-
-      return true
+      return capabilities["extension:prf"] !== false
     } catch (error) {
       console.warn("PRF support check failed:", error)
       return false
     }
   }
 
-  static async register(username: string): Promise<PublicKeyCredential> {
+  /** Is this page in a context where WebAuthn can run at all? */
+  static isSecureContextAvailable(): boolean {
+    if (typeof window === "undefined") {
+      return false
+    }
+    return window.isSecureContext
+  }
+
+  static async register(options: CreationOptionsJSON): Promise<PublicKeyCredential> {
     if (typeof window === "undefined") {
       throw new TypeError("Passkey registration only available in browser")
     }
 
-    const challenge = crypto.getRandomValues(new Uint8Array(16)).buffer
-    const userId = crypto.getRandomValues(new Uint8Array(32))
-
     const credential = (await navigator.credentials.create({
       publicKey: {
-        challenge,
-        rp: {
-          id: this.rpId,
-          name: this.rpName,
-        },
+        ...options,
+        challenge: toBuffer(options.challenge),
         user: {
-          id: userId,
-          name: username,
-          displayName: username,
+          ...options.user,
+          id: toBuffer(options.user.id),
         },
-        pubKeyCredParams: [
-          { alg: -7, type: "public-key" },
-          { alg: -257, type: "public-key" },
-        ],
-        authenticatorSelection: {
-          residentKey: "required",
-        },
-        timeout: 60000,
-        attestation: "direct",
+        excludeCredentials: options.excludeCredentials?.map((cred) => ({
+          ...cred,
+          id: toBuffer(cred.id),
+        })),
         extensions: { prf: {} },
       },
-    })) as PublicKeyCredential
+    })) as PublicKeyCredential | null
 
-    if (!credential.id) {
+    if (!credential) {
       throw new Error("Failed to create credential")
     }
 
     return credential
   }
 
-  static async authenticate(): Promise<PublicKeyCredential> {
+  static async authenticate(options: RequestOptionsJSON): Promise<PublicKeyCredential> {
     if (typeof window === "undefined") {
       throw new TypeError("Passkey authentication only available in browser")
     }
 
-    const challenge = crypto.getRandomValues(new Uint8Array(16)).buffer
-
-    const input = "very_secret_input_for_prf_abcdef1234567890"
-    const buffer: ArrayBufferLike = (hexToArrayBuffer(keccak256(input), Uint8Array) as Uint8Array).buffer
-
     const credential = (await navigator.credentials.get({
       publicKey: {
-        challenge,
-        rpId: this.rpId,
-        userVerification: "required",
-        timeout: 60000,
+        ...options,
+        challenge: toBuffer(options.challenge),
+        allowCredentials: options.allowCredentials?.map((cred) => ({
+          ...cred,
+          id: toBuffer(cred.id),
+        })),
         extensions: {
           prf: {
             eval: {
-              first: buffer as ArrayBuffer,
+              first: BufferHelper.hexToArrayBuffer(PRF_EVAL_INPUT) as ArrayBuffer,
             },
           },
         },
       },
-    })) as PublicKeyCredential
+    })) as PublicKeyCredential | null
 
     if (!credential) {
       throw new Error("Failed to authenticate")
@@ -111,25 +153,39 @@ export class PasskeyManager {
 
     return credential
   }
-}
 
-function hexStringToHexNumber(hex_str: string) {
-  if (/0x/i.test(hex_str.substring(0, 2))) {
-    return hex_str.substring(2)
-  } else {
-    return hex_str
-  }
-}
+  /** Serialise a registration credential for @simplewebauthn/server. */
+  static serializeRegistration(credential: PublicKeyCredential) {
+    const response = credential.response as AuthenticatorAttestationResponse
 
-function hexToArrayBuffer<T extends ArrayBufferView = Uint8Array>(hexStr: string, BufferType?: { new (array: number[]): T }): ArrayBuffer | T {
-  const cleanedHex = hexStringToHexNumber(hexStr)
-
-  const ret: number[] = []
-  for (let i = 0; i < cleanedHex.length / 2; i++) {
-    const x = i * 2
-    const n = Number.parseInt(cleanedHex.substr(x, 2), 16)
-    ret.push(n)
+    return {
+      id: credential.id,
+      rawId: fromBuffer(credential.rawId),
+      type: credential.type,
+      clientExtensionResults: {},
+      response: {
+        clientDataJSON: fromBuffer(response.clientDataJSON),
+        attestationObject: fromBuffer(response.attestationObject),
+        transports: typeof response.getTransports === "function" ? response.getTransports() : undefined,
+      },
+    }
   }
 
-  return BufferType ? new BufferType(ret) : new Uint8Array(ret).buffer
+  /** Serialise an authentication assertion for @simplewebauthn/server. */
+  static serializeAuthentication(credential: PublicKeyCredential) {
+    const response = credential.response as AuthenticatorAssertionResponse
+
+    return {
+      id: credential.id,
+      rawId: fromBuffer(credential.rawId),
+      type: credential.type,
+      clientExtensionResults: {},
+      response: {
+        clientDataJSON: fromBuffer(response.clientDataJSON),
+        authenticatorData: fromBuffer(response.authenticatorData),
+        signature: fromBuffer(response.signature),
+        userHandle: response.userHandle ? fromBuffer(response.userHandle) : undefined,
+      },
+    }
+  }
 }

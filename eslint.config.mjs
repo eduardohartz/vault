@@ -58,6 +58,13 @@ export default antfu(
       "style/arrow-parens": "off",
       "jsx-a11y/label-has-associated-control": "off",
       "node/prefer-global/buffer": "off",
+
+      // Enforces pnpm settings this project cannot use. Its autofix writes
+      // `trustPolicy: no-downgrade` into pnpm-workspace.yaml, which makes the
+      // project uninstallable: pnpm then aborts with ERR_PNPM_TRUST_DOWNGRADE
+      // on a transitive semver@6.3.1 it flags as a possible takeover. Revisit
+      // if that resolves upstream — the intent of the setting is sound.
+      "pnpm/yaml-enforce-settings": "off",
     },
   },
 )

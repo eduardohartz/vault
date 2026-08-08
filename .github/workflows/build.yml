@@ -1,0 +1,164 @@
+name: Build, sign and attest
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  verify:
+    name: Typecheck, lint, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Reads the pnpm version from package.json's packageManager field, so CI
+      # cannot drift to a different resolver than the Dockerfile or a developer.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec prisma generate
+      - run: pnpm run verify
+
+  build:
+    name: Build and sign image
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      # Both required for keyless signing and provenance: the job proves its
+      # identity to Sigstore with a short-lived OIDC token, so there is no
+      # long-lived signing key to leak.
+      id-token: write
+      attestations: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lowercase image name
+        id: meta
+        run: echo "image=${REGISTRY}/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push app image
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runner
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ github.sha }}
+            ${{ steps.meta.outputs.image }}:latest
+          build-args: |
+            BUILD_SHA=${{ github.sha }}
+            BUILD_TIMESTAMP=${{ github.event.repository.updated_at }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Migrations run from their own image (see Dockerfile), so it needs the
+      # same signing treatment — an unverified migrator could rewrite the schema.
+      - name: Build and push migrator image
+        id: push_migrator
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: migrator
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}-migrate:${{ github.sha }}
+            ${{ steps.meta.outputs.image }}-migrate:latest
+          provenance: mode=max
+          cache-from: type=gha
+
+      - name: Attest app provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ steps.meta.outputs.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest migrator provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ steps.meta.outputs.image }}-migrate
+          subject-digest: ${{ steps.push_migrator.outputs.digest }}
+          push-to-registry: true
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Sign images (keyless)
+        run: |
+          cosign sign --yes "${{ steps.meta.outputs.image }}@${{ steps.push.outputs.digest }}"
+          cosign sign --yes "${{ steps.meta.outputs.image }}-migrate@${{ steps.push_migrator.outputs.digest }}"
+
+      # The manifest of client asset hashes is what the integrity monitor
+      # compares a live deployment against. It is published as a CI artifact,
+      # never served by the app: a server vouching for its own integrity proves
+      # nothing, because whoever modified it can modify the vouching too.
+      - name: Extract bundle manifest from the signed image
+        run: |
+          docker pull "${{ steps.meta.outputs.image }}@${{ steps.push.outputs.digest }}"
+          container=$(docker create "${{ steps.meta.outputs.image }}@${{ steps.push.outputs.digest }}")
+          docker cp "$container:/usr/src/app/bundle-manifest.json" ./bundle-manifest.json
+          docker rm "$container"
+          echo "Assets recorded: $(node -e 'process.stdout.write(String(require("./bundle-manifest.json").assetCount))')"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-manifest
+          path: bundle-manifest.json
+          retention-days: 90
+
+      - name: Attest the bundle manifest
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: bundle-manifest.json
+
+      - name: Summary
+        run: |
+          {
+            echo "### Signed build"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| App | \`${{ steps.meta.outputs.image }}@${{ steps.push.outputs.digest }}\` |"
+            echo "| Migrator | \`${{ steps.meta.outputs.image }}-migrate@${{ steps.push_migrator.outputs.digest }}\` |"
+            echo "| Commit | \`${{ github.sha }}\` |"
+            echo ""
+            echo "Verify, then deploy:"
+            echo ""
+            echo '```bash'
+            echo "./scripts/verify-image.sh ${{ steps.meta.outputs.image }}@${{ steps.push.outputs.digest }}"
+            echo "./scripts/verify-image.sh ${{ steps.meta.outputs.image }}-migrate@${{ steps.push_migrator.outputs.digest }}"
+            echo ""
+            echo "export VAULT_IMAGE=${{ steps.meta.outputs.image }}@${{ steps.push.outputs.digest }}"
+            echo "export VAULT_MIGRATE_IMAGE=${{ steps.meta.outputs.image }}-migrate@${{ steps.push_migrator.outputs.digest }}"
+            echo "docker compose -f compose.yml -f compose.image.yml up -d"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

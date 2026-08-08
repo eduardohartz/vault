@@ -1,161 +1,188 @@
+import type { NextRequest } from "next/server"
 import { Buffer } from "node:buffer"
 import fs from "node:fs/promises"
 import path from "node:path"
-import { type NextRequest, NextResponse } from "next/server"
+import { apiError, apiJson, enforceRateLimit, requireSession } from "@/lib/api"
 import { prisma } from "@/lib/db"
+import { getBaseUrl, getEncryptedFilesDir, getMaxFileSize } from "@/lib/env"
 
-const ENCRYPTED_FILES_DIR = process.env.ENCRYPTED_FILES_DIR || "./encrypted_files"
+const ENCRYPTED_FILES_DIR = getEncryptedFilesDir()
+const GCM_TAG_BYTES = 16
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try {
-    const formData = await request.formData()
-    const encryptedData = formData.get("encryptedData") as string
-    const iv = formData.get("iv") as string
-    const salt = formData.get("salt") as string
-    const encryptedName = formData.get("encryptedName") as string
-    const nameIv = formData.get("nameIv") as string
-    const nameSalt = formData.get("nameSalt") as string
-    const originalSize = Number.parseInt(formData.get("originalSize") as string)
-    const expiresAt = formData.get("expiresAt") as string
-    const userId = request.headers.get("Authorization")?.replace("Bearer ", "")
+  const auth = await requireSession()
+  if ("response" in auth) {
+    return auth.response
+  }
 
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const limited = enforceRateLimit(request, "share-create", 30, 60_000)
+  if (limited) {
+    return limited
+  }
+
+  const maxFileSize = getMaxFileSize()
+  let sharedFileFullPath: string | null = null
+
+  try {
+    const { id } = await params
+
+    const formData = await request.formData()
+    const encryptedData = formData.get("encryptedData")
+    const iv = formData.get("iv")
+    const salt = formData.get("salt")
+    const encryptedName = formData.get("encryptedName")
+    const nameIv = formData.get("nameIv")
+    const nameSalt = formData.get("nameSalt")
+    const rawOriginalSize = formData.get("originalSize")
+    const rawExpiresAt = formData.get("expiresAt")
+
+    if (
+      typeof encryptedData !== "string"
+      || typeof iv !== "string"
+      || typeof salt !== "string"
+      || typeof encryptedName !== "string"
+      || typeof nameIv !== "string"
+      || typeof nameSalt !== "string"
+      || typeof rawOriginalSize !== "string"
+    ) {
+      return apiError("Bad Request", 400)
+    }
+
+    const originalSize = Number.parseInt(rawOriginalSize, 10)
+    if (!Number.isInteger(originalSize) || originalSize < 0 || originalSize > maxFileSize) {
+      return apiError("Bad Request", 400)
+    }
+
+    let expiresAt: Date | null = null
+    if (typeof rawExpiresAt === "string" && rawExpiresAt.length > 0) {
+      const parsed = new Date(rawExpiresAt)
+      if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= Date.now()) {
+        return apiError("Share expiry must be a valid date in the future", 400)
+      }
+      expiresAt = parsed
     }
 
     const file = await prisma.file.findFirst({
-      where: {
-        id: (await params).id,
-        userId,
-      },
-      include: {
-        SharedFile: true,
-      },
+      where: { id, userId: auth.user.id },
+      include: { SharedFile: true },
     })
 
     if (!file) {
-      return NextResponse.json({ error: "File not found or access denied" }, { status: 404 })
+      return apiError("File not found or access denied", 404)
     }
 
     if (file.SharedFile) {
-      return NextResponse.json({ error: "File already shared" }, { status: 400 })
+      return apiError("File already shared", 409)
+    }
+
+    const ciphertext = Buffer.from(encryptedData, "base64")
+    if (ciphertext.length !== originalSize + GCM_TAG_BYTES) {
+      return apiError("Encrypted payload does not match the declared size", 400)
     }
 
     const shareToken = crypto.randomUUID()
-
     const sharedFilePath = `shared_${shareToken}.enc`
-    const sharedFileFullPath = path.join(ENCRYPTED_FILES_DIR, sharedFilePath)
+    sharedFileFullPath = path.join(ENCRYPTED_FILES_DIR, sharedFilePath)
 
-    await fs.writeFile(sharedFileFullPath, Buffer.from(encryptedData, "base64"))
+    await fs.writeFile(sharedFileFullPath, ciphertext)
 
     await prisma.sharedFile.create({
       data: {
         shareToken,
         salt,
         fileId: file.id,
-        sharedById: userId,
-        expiresAt: expiresAt ? new Date(expiresAt) : null,
+        sharedById: auth.user.id,
+        expiresAt,
         sharedFilePath,
         iv,
         encryptedName,
         nameIv,
         nameSalt,
         originalSize,
-        createdAt: new Date(),
       },
     })
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
-    const shareUrl = `${baseUrl}/share/${shareToken}`
-
-    return NextResponse.json({
+    return apiJson({
       success: true,
       shareToken,
-      shareUrl,
-      message: "Share link created! Remember to share the share key with the recipient.",
+      shareUrl: `${getBaseUrl(request)}/share/${shareToken}`,
+      expiresAt,
+      message: "Share link created. Send the share key to the recipient separately.",
     })
-  } catch {
-    return NextResponse.json({ error: "Failed to create share" }, { status: 500 })
+  } catch (error) {
+    if (sharedFileFullPath) {
+      await fs.rm(sharedFileFullPath, { force: true }).catch(() => {})
+    }
+    console.error("Failed to create share:", error)
+    return apiError("Failed to create share", 500)
   }
 }
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireSession()
+  if ("response" in auth) {
+    return auth.response
+  }
+
   try {
-    const userId = request.headers.get("Authorization")?.replace("Bearer ", "")
+    const { id } = await params
 
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    const share = await prisma.sharedFile.findUnique({
-      where: {
-        fileId: (await params).id,
-        sharedById: userId,
-      },
+    const share = await prisma.sharedFile.findFirst({
+      where: { fileId: id, sharedById: auth.user.id },
       select: {
         id: true,
         shareToken: true,
         expiresAt: true,
-        iv: true,
-        encryptedName: true,
-        nameIv: true,
-        nameSalt: true,
-        originalSize: true,
         createdAt: true,
+        originalSize: true,
       },
     })
 
-    return NextResponse.json(share)
-  } catch {
-    return NextResponse.json({ error: "Failed to fetch share" }, { status: 500 })
+    if (!share) {
+      return apiError("Share not found", 404)
+    }
+
+    return apiJson({
+      ...share,
+      shareUrl: `${getBaseUrl(request)}/share/${share.shareToken}`,
+    })
+  } catch (error) {
+    console.error("Failed to fetch share:", error)
+    return apiError("Failed to fetch share", 500)
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireSession()
+  if ("response" in auth) {
+    return auth.response
+  }
+
   try {
-    const userId = request.headers.get("Authorization")?.replace("Bearer ", "")
+    const { id } = await params
 
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    const share = await prisma.sharedFile.findFirst({
+      where: { fileId: id, sharedById: auth.user.id },
+    })
+
+    if (!share) {
+      return apiError("Share not found", 404)
     }
 
-    const file = await prisma.file.findUnique({
-      where: {
-        id: (await params).id,
-        userId,
-      },
-    })
-
-    if (!file) {
-      return NextResponse.json({ error: "File not found or access denied" }, { status: 404 })
+    try {
+      await fs.rm(path.join(ENCRYPTED_FILES_DIR, share.sharedFilePath), { force: true })
+    } catch (error) {
+      // Keep the row so the blob stays reachable and the unshare can be retried;
+      // silently dropping it would leave decryptable ciphertext on disk.
+      console.error("Failed to delete shared file from disk:", error)
+      return apiError("Could not remove the shared copy from storage. The share is still active.", 500)
     }
 
-    const share = await prisma.sharedFile.findUnique({
-      where: {
-        fileId: (await params).id,
-        sharedById: userId,
-      },
-    })
+    await prisma.sharedFile.delete({ where: { id: share.id } })
 
-    if (share && share.sharedFilePath) {
-      try {
-        const sharedFilePath = path.join(ENCRYPTED_FILES_DIR, share.sharedFilePath)
-        await fs.rm(sharedFilePath)
-      } catch {}
-    }
-
-    await prisma.sharedFile.delete({
-      where: {
-        fileId: (await params).id,
-        sharedById: userId,
-      },
-    })
-
-    return NextResponse.json({
-      success: true,
-      message: `Removed share`,
-    })
-  } catch {
-    return NextResponse.json({ error: "Failed to unshare file" }, { status: 500 })
+    return apiJson({ success: true, message: "Removed share" })
+  } catch (error) {
+    console.error("Failed to unshare file:", error)
+    return apiError("Failed to unshare file", 500)
   }
 }

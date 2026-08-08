@@ -1,0 +1,39 @@
+# Without this file, `COPY . .` copied the local .env — containing
+# POSTGRES_PASSWORD — straight into the image layers, along with ~677 MB of
+# host node_modules and the .git history.
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+.github
+
+node_modules
+.next
+out
+build
+dist
+
+# Local TLS material used by `next dev --experimental-https`
+certificates
+localhost.pem
+localhost-key.pem
+
+# Encrypted user data must never enter a build context
+encrypted_files
+.encrypted_files
+
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+.DS_Store
+.vscode
+.idea
+
+tests
+vitest.config.ts
+README.md

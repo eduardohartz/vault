@@ -1,0 +1,23 @@
+# pnpm settings.
+#
+# These live here rather than in package.json's "pnpm" field: newer pnpm has
+# started warning that the package.json field "is no longer read", and a
+# silently-ignored build allowlist would mean Prisma's engine and the native
+# Tailwind/esbuild binaries stop being fetched — with no error until something
+# fails at runtime. Both locations work in the pinned version; this one keeps
+# working after an upgrade.
+
+# Its postinstall is wrapped in an empty catch, so nothing depends on it
+# running. Listed explicitly to keep it blocked without warning on every install.
+ignoredBuiltDependencies:
+  - "@heroui/shared-utils"
+
+# pnpm 10 blocks dependency install scripts by default. Only the ones this
+# project genuinely needs are allowed.
+onlyBuiltDependencies:
+  - "@prisma/client"
+  - "@prisma/engines"
+  - "@tailwindcss/oxide"
+  - esbuild
+  - prisma
+  - sharp

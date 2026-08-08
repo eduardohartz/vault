@@ -1,102 +1,92 @@
 import { readFile, rm } from "node:fs/promises"
 import { join } from "node:path"
-import { type NextRequest, NextResponse } from "next/server"
+import { apiError, apiJson, requireSession } from "@/lib/api"
 import { prisma } from "@/lib/db"
+import { getEncryptedFilesDir } from "@/lib/env"
 
-const ENCRYPTED_FILES_DIR = process.env.ENCRYPTED_FILES_DIR || "./encrypted_files"
+const ENCRYPTED_FILES_DIR = getEncryptedFilesDir()
 
-export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireSession()
+  if ("response" in auth) {
+    return auth.response
+  }
+
   try {
-    const userId = request.headers.get("Authorization")?.replace("Bearer ", "")
-
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+    const { id } = await params
 
     const fileRecord = await prisma.file.findFirst({
-      where: {
-        id: (await params).id,
-        userId,
-      },
+      where: { id, userId: auth.user.id },
       select: {
         id: true,
         encryptedName: true,
         originalSize: true,
         uploadedAt: true,
-        salt: true,
-        iv: true,
-        nameSalt: true,
         nameIv: true,
         encryptedPath: true,
       },
     })
 
     if (!fileRecord) {
-      return NextResponse.json({ error: "Error fetching file" }, { status: 404 })
+      return apiError("File not found", 404)
     }
 
     const filePath = join(ENCRYPTED_FILES_DIR, fileRecord.encryptedPath)
-    const encryptedFileData = await readFile(filePath, "utf8")
-    const parsedData = JSON.parse(encryptedFileData)
+    const parsed = JSON.parse(await readFile(filePath, "utf8"))
 
-    return NextResponse.json({
+    const { encryptedPath, ...safeRecord } = fileRecord
+
+    return apiJson({
       file: {
-        ...fileRecord,
-        encryptedData: parsedData.encryptedData,
-        iv: parsedData.iv,
+        ...safeRecord,
+        encryptedData: parsed.encryptedData,
+        iv: parsed.iv,
       },
     })
-  } catch {
-    return NextResponse.json({ error: "Error fetching file" }, { status: 404 })
+  } catch (error) {
+    console.error("Failed to fetch file:", error)
+    return apiError("Failed to fetch file", 500)
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try {
-    const userId = request.headers.get("Authorization")?.replace("Bearer ", "")
+export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireSession()
+  if ("response" in auth) {
+    return auth.response
+  }
 
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+  try {
+    const { id } = await params
 
     const fileRecord = await prisma.file.findFirst({
-      where: {
-        id: (await params).id,
-        userId,
-      },
+      where: { id, userId: auth.user.id },
+      include: { SharedFile: true },
     })
 
     if (!fileRecord) {
-      return NextResponse.json({ error: "Error fetching file" }, { status: 404 })
+      return apiError("File not found", 404)
     }
 
-    const filePath = join(ENCRYPTED_FILES_DIR, fileRecord.encryptedPath)
-    try {
-      await rm(filePath)
-    } catch (error) {
-      console.error("Failed to delete file from disk:", error)
+    const paths = [join(ENCRYPTED_FILES_DIR, fileRecord.encryptedPath)]
+    if (fileRecord.SharedFile) {
+      paths.push(join(ENCRYPTED_FILES_DIR, fileRecord.SharedFile.sharedFilePath))
     }
 
-    const shared = await prisma.sharedFile.findUnique({
-      where: { fileId: (await params).id },
-    })
+    const results = await Promise.allSettled(paths.map((path) => rm(path, { force: true })))
+    const failures = results.filter((r) => r.status === "rejected")
 
-    if (shared) {
-      const sharedFilePath = join(ENCRYPTED_FILES_DIR, shared.sharedFilePath)
-      try {
-        await rm(sharedFilePath)
-      } catch (error) {
-        console.error("Failed to delete shared file from disk:", error)
-      }
+    if (failures.length > 0) {
+      // Keep the row so the blob stays reachable and the delete can be retried.
+      console.error("Failed to delete file from disk:", failures)
+      return apiError("Could not delete the file from storage. Nothing was removed.", 500)
     }
 
-    await prisma.file.delete({
-      where: { id: (await params).id },
-    })
+    // Cascades to SharedFile.
+    await prisma.file.delete({ where: { id } })
 
-    return NextResponse.json({ success: true })
+    return apiJson({ success: true })
   } catch (error) {
-    console.error("Delete error:", error)
-    return NextResponse.json({ error: "Error fetching file" }, { status: 500 })
+    console.error("Delete failed:", error)
+    return apiError("Failed to delete file", 500)
   }
 }

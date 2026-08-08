@@ -1,30 +1,38 @@
 "use client"
 
-import type { SetStateAction } from "react"
 import { Button, Card, CardBody, CardHeader, Input, Spinner, useDisclosure } from "@heroui/react"
-import { AlertTriangle, CheckCircle, Key, Moon, Shield, Sun } from "lucide-react"
+import { AlertTriangle, Key, Moon, Shield, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import AlertModal from "@/components/alert-modal"
-import { BufferHelper } from "@/lib/buffer-helper"
 import { CryptoManager } from "@/lib/crypto-manager"
 import { KeyHelper } from "@/lib/key-helper"
 import { PasskeyManager } from "@/lib/passkey-manager"
+import { wipe } from "@/lib/session-client"
 
-type AuthPageProps = {
-  onAuthenticated: (user: { id: string, username: string, privateKey: any, publicKey: any, shareKey: string }) => void
+export type AuthenticatedUser = {
+  id: string
+  username: string
+  privateKey: CryptoKey
+  publicKey: CryptoKey
 }
 
+type AuthPageProps = {
+  onAuthenticated: (user: AuthenticatedUser) => void
+}
+
+type Support =
+  | { state: "checking" }
+  | { state: "insecure" }
+  | { state: "unsupported" }
+  | { state: "ok" }
+
 export default function AuthPage({ onAuthenticated }: AuthPageProps) {
-  const [isLoading, setIsLoading] = useState(true)
+  const [support, setSupport] = useState<Support>({ state: "checking" })
   const [username, setUsername] = useState("")
-  const [userExists, setUserExists] = useState(false)
+  const [mode, setMode] = useState<"choose" | "register">("choose")
   const [canRegister, setCanRegister] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
-  const [isSupported, setIsSupported] = useState(false)
-  const [hasCheckedUsername, setHasCheckedUsername] = useState(false)
-  const [registrationStep, setRegistrationStep] = useState<"check" | "passkey-created" | "complete">("check")
-  const [credentialId, setCredentialId] = useState<string>("")
   const { theme, setTheme } = useTheme()
 
   const { isOpen: isAlertOpen, onOpen: onAlertOpen, onClose: onAlertClose } = useDisclosure()
@@ -34,215 +42,211 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
     type: "info" as "success" | "error" | "warning" | "info",
   })
 
-  const checkPasskeySupport = async () => {
-    const supported = await PasskeyManager.isSupported()
-    const prfSupported = await PasskeyManager.isPRFSupported()
-    setIsSupported(supported && prfSupported)
-  }
+  const showAlert = useCallback(
+    (title: string, message: string, type: "success" | "error" | "warning" | "info" = "info") => {
+      setAlertConfig({ title, message, type })
+      onAlertOpen()
+    },
+    [onAlertOpen],
+  )
 
   useEffect(() => {
-    checkPasskeySupport()
-    setIsLoading(false)
+    let cancelled = false
+
+    const check = async () => {
+      // WebAuthn only runs in a secure context. Reporting this as "PRF not
+      // supported" used to send self-hosters chasing a browser problem when
+      // the real cause was serving the app over plain HTTP.
+      if (!PasskeyManager.isSecureContextAvailable()) {
+        if (!cancelled) {
+          setSupport({ state: "insecure" })
+        }
+        return
+      }
+
+      const supported = (await PasskeyManager.isSupported()) && (await PasskeyManager.isPRFSupported())
+
+      try {
+        const response = await fetch("/api/auth/session")
+        const data = await response.json()
+        if (!cancelled) {
+          setCanRegister(Boolean(data.canRegister))
+        }
+      } catch {
+        // Non-fatal: the register button simply stays hidden.
+      }
+
+      if (!cancelled) {
+        setSupport({ state: supported ? "ok" : "unsupported" })
+      }
+    }
+
+    void check()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
-  const showAlert = (title: string, message: string, type: "success" | "error" | "warning" | "info" = "info") => {
-    setAlertConfig({ title, message, type })
-    onAlertOpen()
-  }
+  /**
+   * Run a passkey assertion, verify it server-side, and derive the vault keys
+   * from its PRF output. The server decides the key derivation version, so an
+   * existing v1 vault keeps deriving the keys its files were encrypted with.
+   */
+  const authenticateAndDeriveKeys = useCallback(async (): Promise<AuthenticatedUser> => {
+    const optionsResponse = await fetch("/api/auth/login/options", { method: "POST" })
+    if (!optionsResponse.ok) {
+      throw new Error((await optionsResponse.json()).error ?? "Could not start sign-in")
+    }
+    const { options } = await optionsResponse.json()
 
-  const checkUsername = async () => {
-    if (!username.trim()) {
-      showAlert("Missing Username", "Please enter a username", "warning")
-      return
+    const credential = await PasskeyManager.authenticate(options)
+    const prfBuff = await CryptoManager.getPRFOutput(credential)
+
+    const verifyResponse = await fetch("/api/auth/login/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        challenge: options.challenge,
+        response: PasskeyManager.serializeAuthentication(credential),
+      }),
+    })
+
+    const verified = await verifyResponse.json()
+    if (!verifyResponse.ok || !verified.success) {
+      throw new Error(verified.error ?? "Authentication failed")
     }
 
-    setIsLoading(true)
-
+    let hkdfSeed: ArrayBuffer
     try {
-      const response = await fetch("/api/auth/username", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: username.trim() }),
-      })
-
-      const data = await response.json()
-
-      if (response.ok) {
-        setUserExists(data.exists)
-        setCanRegister(data.canRegister)
-        setHasCheckedUsername(true)
-
-        if (!data.exists && !data.canRegister) {
-          showAlert("Registration Error", `Cannot create new accounts.`, "error")
-        }
-      } else {
-        showAlert("Error", data.error || "Failed to check username", "error")
-      }
-    } catch {
-      showAlert("Error", "Failed to check username. Please try again.", "error")
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const handleCreatePasskey = async () => {
-    setIsProcessing(true)
-
-    try {
-      const credential = await PasskeyManager.register(username.trim())
-
-      if (credential.getClientExtensionResults().prf?.enabled !== true) {
-        throw new Error("PRF extension not enabled")
-      }
-
-      setCredentialId(credential.id)
-      setRegistrationStep("passkey-created")
-
-      showAlert("Passkey Created", "Your passkey has been created successfully! Now we'll set up your encryption keys.", "success")
-    } catch {
-      showAlert("Passkey Creation Failed", "Failed to create passkey. Please try again.", "error")
-    } finally {
-      setIsProcessing(false)
-    }
-  }
-
-  const handleCompleteRegistration = async () => {
-    setIsProcessing(true)
-
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-
-      const credential = await PasskeyManager.authenticate()
-
-      if (credential.id !== credentialId) {
-        throw new Error("Authenticated with different credential than expected")
-      }
-
-      const prfBuff = await CryptoManager.getPRFOutput(credential)
       const HKDFKey = await CryptoManager.generateHKDFKey(prfBuff)
-      const hkdfSeed = await CryptoManager.generateNewSeed("", prfBuff, HKDFKey)
-
-      const { privateKey, publicKey } = CryptoManager.generateKeyPair(hkdfSeed)
-
-      const keys = await KeyHelper.convertKeys(privateKey, publicKey)
-
-      if (!keys.publicKey.key || !keys.privateKey.key || !keys.publicKey.rawBuffer) {
-        throw new Error("Failed to generate valid key pair")
-      }
-
-      const keypair = await CryptoManager.deriveECDHKey(keys.privateKey.key, keys.publicKey.key)
-
-      const shareKey = await CryptoManager.generateShareKey(keypair)
-
-      const response = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: username.trim(),
-          credentialId: credential.id,
-          publicKey: BufferHelper.bufferToHex(new Uint8Array(keys.publicKey.rawBuffer)),
-        }),
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        setRegistrationStep("complete")
-        onAuthenticated({
-          id: data.userId,
-          username: username.trim(),
-          shareKey,
-          privateKey: keys.privateKey,
-          publicKey: keys.publicKey,
-        })
-      } else {
-        showAlert("Registration Failed", data.error || "Registration failed", "error")
-      }
-    } catch {
-      showAlert("Registration Failed", "Failed to authenticate with new passkey or generate keys.", "error")
-
-      setRegistrationStep("passkey-created")
+      hkdfSeed = await CryptoManager.generateNewSeed("", prfBuff, HKDFKey, verified.user.keyVersion)
     } finally {
-      setIsProcessing(false)
+      // The PRF output is the root of the whole key chain — everything
+      // rederives from it — so it should not outlive the derivation. Best
+      // effort: the engine may already have copied it, and the buffer inside
+      // the assertion is not ours to clear.
+      wipe(prfBuff)
     }
-  }
+
+    const { privateKey, publicKey } = CryptoManager.generateKeyPair(hkdfSeed)
+    const keys = await KeyHelper.convertKeys(privateKey, publicKey)
+
+    if (!keys.privateKey.success || !keys.publicKey.success || !keys.privateKey.key || !keys.publicKey.key) {
+      // Surfaced rather than swallowed: this is the path that used to fall back
+      // to a random key on Safari and silently orphan every uploaded file.
+      throw new Error(keys.privateKey.error ?? keys.publicKey.error ?? "Could not derive your encryption keys")
+    }
+
+    return {
+      id: verified.user.id,
+      username: verified.user.username,
+      privateKey: keys.privateKey.key,
+      publicKey: keys.publicKey.key,
+    }
+  }, [])
 
   const handleLogin = async () => {
     setIsProcessing(true)
-
     try {
-      const credential = await PasskeyManager.authenticate()
-
-      const prfBuff = await CryptoManager.getPRFOutput(credential)
-      const HKDFKey = await CryptoManager.generateHKDFKey(prfBuff)
-      const hkdfSeed = await CryptoManager.generateNewSeed("", prfBuff, HKDFKey)
-      const { privateKey, publicKey } = CryptoManager.generateKeyPair(hkdfSeed)
-      const keys = await KeyHelper.convertKeys(privateKey, publicKey)
-
-      if (!keys.publicKey.key || !keys.privateKey.key || !keys.publicKey.rawBuffer) {
-        throw new Error("Failed to generate valid key pair")
-      }
-
-      const keypair = await CryptoManager.deriveECDHKey(keys.privateKey.key, keys.publicKey.key)
-
-      const shareKey = await CryptoManager.generateShareKey(keypair)
-
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          credentialId: credential.id,
-          publicKey: BufferHelper.bufferToHex(new Uint8Array(keys.publicKey.rawBuffer)),
-        }),
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        onAuthenticated({
-          id: data.user.id,
-          username: data.user.username,
-          shareKey,
-          privateKey: keys.privateKey,
-          publicKey: keys.publicKey,
-        })
-      } else {
-        showAlert("Authentication Failed", data.error || "Authentication failed", "error")
-      }
-    } catch {
-      showAlert("Authentication Failed", "Authentication failed. PRF support required.", "error")
+      onAuthenticated(await authenticateAndDeriveKeys())
+    } catch (error) {
+      showAlert("Sign-in Failed", error instanceof Error ? error.message : "Authentication failed.", "error")
     } finally {
       setIsProcessing(false)
     }
   }
 
-  const resetForm = () => {
-    setUsername("")
-    setUserExists(false)
-    setCanRegister(false)
-    setHasCheckedUsername(false)
-    setRegistrationStep("check")
-    setCredentialId("")
+  const handleRegister = async () => {
+    const trimmed = username.trim()
+    if (!trimmed) {
+      showAlert("Missing Username", "Please enter a username.", "warning")
+      return
+    }
+
+    setIsProcessing(true)
+    try {
+      const optionsResponse = await fetch("/api/auth/register/options", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: trimmed }),
+      })
+
+      const optionsData = await optionsResponse.json()
+      if (!optionsResponse.ok) {
+        throw new Error(optionsData.error ?? "Could not start registration")
+      }
+
+      const credential = await PasskeyManager.register(optionsData.options)
+
+      if (credential.getClientExtensionResults().prf?.enabled !== true) {
+        throw new Error("Your authenticator did not enable the PRF extension, which this vault requires for encryption.")
+      }
+
+      const verifyResponse = await fetch("/api/auth/register/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          challenge: optionsData.options.challenge,
+          response: PasskeyManager.serializeRegistration(credential),
+        }),
+      })
+
+      const verified = await verifyResponse.json()
+      if (!verifyResponse.ok || !verified.success) {
+        throw new Error(verified.error ?? "Registration failed")
+      }
+
+      // PRF output is only returned by an assertion, so a second ceremony is
+      // needed before any key material exists.
+      onAuthenticated(await authenticateAndDeriveKeys())
+    } catch (error) {
+      showAlert("Registration Failed", error instanceof Error ? error.message : "Registration failed.", "error")
+    } finally {
+      setIsProcessing(false)
+    }
   }
 
-  if (isLoading) {
+  if (support.state === "checking") {
     return (
       <div className="flex justify-center items-center bg-background min-h-screen">
-        <Spinner size="lg" />
+        <Spinner size="lg" label="Checking browser support" />
       </div>
     )
   }
 
-  if (!isSupported) {
+  if (support.state === "insecure" || support.state === "unsupported") {
+    const insecure = support.state === "insecure"
     return (
       <div className="flex justify-center items-center bg-background p-4 min-h-screen">
         <Card className="p-2 w-full max-w-md">
           <CardHeader className="border-divider border-b text-center">
-            <h1 className="font-bold text-danger text-xl">PRF Not Supported</h1>
+            <h1 className="font-bold text-danger text-xl">{insecure ? "HTTPS Required" : "PRF Not Supported"}</h1>
           </CardHeader>
           <CardBody className="text-left">
-            <p className="py-3 text-default-600 text-center">Your browser doesn't support WebAuthn PRF extension. This system requires PRF support for secure key derivation.</p>
-            <p className="mt-2 text-default-400 text-xs">Try using Chrome/Edge/Firefox with Windows Hello or Safari with Touch ID/Face ID.</p>
+            {insecure ? (
+              <>
+                <p className="py-3 text-default-600 text-center">
+                  Passkeys only work in a secure context. Serve this vault over HTTPS, or reach it at
+                  {" "}
+                  <code className="bg-default-100 px-1 rounded">localhost</code>
+                  .
+                </p>
+                <p className="mt-2 text-default-400 text-xs">
+                  Put a reverse proxy with a TLS certificate in front of the container, or run
+                  {" "}
+                  <code className="bg-default-100 px-1 rounded">npm run dev</code>
+                  {" "}
+                  which serves HTTPS locally.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="py-3 text-default-600 text-center">
+                  Your browser or authenticator doesn't support the WebAuthn PRF extension, which this vault requires to derive encryption keys.
+                </p>
+                <p className="mt-2 text-default-400 text-xs">Try Chrome, Edge or Firefox with Windows Hello, or Safari with Touch ID / Face ID.</p>
+              </>
+            )}
           </CardBody>
         </Card>
       </div>
@@ -250,14 +254,16 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
   }
 
   return (
-    <div className="flex justify-center items-center bg-background p-4 min-h-screen">
+    <div className="flex flex-col justify-center items-center gap-6 bg-background px-4 py-10 min-h-screen">
       <div className="top-4 right-4 absolute">
         <Button
           isIconOnly
           variant="ghost"
+          className="min-w-11 min-h-11"
+          aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
           onPress={() => setTheme(theme === "dark" ? "light" : "dark")}
         >
-          {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          {theme === "dark" ? <Sun aria-hidden="true" className="w-5 h-5" /> : <Moon aria-hidden="true" className="w-5 h-5" />}
         </Button>
       </div>
 
@@ -265,143 +271,83 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
         <CardHeader className="pb-2 text-center">
           <div className="flex justify-center items-center gap-2">
             <div className="bg-primary/10 p-3 rounded-full">
-              <Shield className="w-8 h-8 text-primary" />
+              <Shield aria-hidden="true" className="w-8 h-8 text-primary" />
             </div>
             <div className="flex flex-col items-start">
-              <h1 className="font-bold text-xl">Eduardo's Vault</h1>
-              <h2 className="text-default-500 text-sm">Login or Register</h2>
+              <h1 className="font-bold text-xl">Vault</h1>
+              <h2 className="text-default-500 text-sm">Sign in or create an account</h2>
             </div>
           </div>
         </CardHeader>
 
-        <CardBody className="pt-2 pb-4">
-          {!hasCheckedUsername ? (
+        <CardBody className="flex flex-col gap-3 pt-2 pb-4">
+          {mode === "choose" ? (
             <>
-              <div className="mb-4">
-                <Input
-                  label="Username"
-                  placeholder="Enter your username"
-                  value={username}
-                  onChange={(e: { target: { value: SetStateAction<string> } }) => setUsername(e.target.value)}
-                  startContent={<Key className="w-4 h-5 text-default-400" />}
-                  isDisabled={isLoading}
-                  onKeyDown={(e: { key: string }) => e.key === "Enter" && checkUsername()}
-                />
-              </div>
+              <Button
+                color="primary"
+                size="lg"
+                className="w-full min-h-11"
+                onPress={handleLogin}
+                isLoading={isProcessing}
+                startContent={!isProcessing && <Shield aria-hidden="true" className="w-4 h-4" />}
+              >
+                {isProcessing ? "Authenticating…" : "Sign in with passkey"}
+              </Button>
+
+              {canRegister ? (
+                <Button variant="ghost" size="lg" className="w-full min-h-11" isDisabled={isProcessing} onPress={() => setMode("register")}>
+                  Create an account
+                </Button>
+              ) : (
+                <p className="text-default-500 text-xs text-center">This vault is not accepting new accounts.</p>
+              )}
+            </>
+          ) : (
+            <>
+              <Input
+                label="Username"
+                placeholder="Choose a username"
+                value={username}
+                onValueChange={setUsername}
+                startContent={<Key aria-hidden="true" className="w-4 h-5 text-default-400" />}
+                isDisabled={isProcessing}
+                description="Letters, numbers, dot, underscore or hyphen."
+                onKeyDown={(e) => e.key === "Enter" && !isProcessing && handleRegister()}
+              />
 
               <Button
                 color="primary"
                 size="lg"
-                className="rounded-xl w-full"
-                onPress={checkUsername}
-                isLoading={isLoading}
+                className="w-full min-h-11"
+                onPress={handleRegister}
+                isLoading={isProcessing}
                 isDisabled={!username.trim()}
+                startContent={!isProcessing && <Shield aria-hidden="true" className="w-4 h-4" />}
               >
-                Continue
+                {isProcessing ? "Creating account…" : "Create passkey and account"}
               </Button>
-            </>
-          ) : (
-            <>
-              <div className="flex justify-between items-center bg-default-50 dark:bg-default-100 mb-4 p-3 rounded-xl">
-                <p className="text-sm">
-                  <strong>Username:</strong>
-                  {" "}
-                  {username}
-                </p>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onPress={resetForm}
-                  className=""
-                >
-                  Change Username
-                </Button>
-              </div>
 
-              {userExists ? (
-                <Button
-                  color="primary"
-                  size="lg"
-                  className="w-full"
-                  onPress={handleLogin}
-                  isLoading={isProcessing}
-                  startContent={!isProcessing && <Shield className="w-4 h-4" />}
-                >
-                  {isProcessing ? "Authenticating..." : "Login with Passkey"}
-                </Button>
-              ) : canRegister ? (
-                <>
-                  {registrationStep === "check" && (
-                    <Button
-                      color="primary"
-                      size="lg"
-                      className="w-full"
-                      onPress={handleCreatePasskey}
-                      isLoading={isProcessing}
-                      startContent={!isProcessing && <Shield className="w-4 h-4" />}
-                    >
-                      {isProcessing ? "Creating Passkey..." : "Create Passkey"}
-                    </Button>
-                  )}
-
-                  {registrationStep === "passkey-created" && (
-                    <div className="space-y-4">
-                      <div className="bg-success/10 p-3 border border-success/20 rounded-lg">
-                        <div className="flex items-center space-x-2">
-                          <CheckCircle className="w-5 h-5 text-success" />
-                          <p className="font-medium text-success text-sm">Passkey Created Successfully!</p>
-                        </div>
-                        <p className="mt-1 text-success text-xs">Now we'll authenticate with your new passkey to set up encryption keys.</p>
-                      </div>
-
-                      <Button
-                        color="primary"
-                        size="lg"
-                        className="w-full"
-                        onPress={handleCompleteRegistration}
-                        isLoading={isProcessing}
-                        startContent={!isProcessing && <Key className="w-4 h-4" />}
-                      >
-                        {isProcessing ? "Setting up encryption..." : "Complete Account Setup"}
-                      </Button>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <Button
-                  color="danger"
-                  size="lg"
-                  className="w-full"
-                  isDisabled
-                >
-                  Registration Unavailable
-                </Button>
-              )}
+              <Button variant="ghost" className="w-full min-h-11" isDisabled={isProcessing} onPress={() => setMode("choose")}>
+                Back
+              </Button>
             </>
           )}
         </CardBody>
       </Card>
 
-      <div className="bottom-4 left-1/2 absolute bg-warning/10 mt-3 p-3 border border-warning/20 rounded-lg w-full max-w-md -translate-x-1/2 transform">
+      <div className="bg-warning/10 p-3 border border-warning/20 rounded-lg w-full max-w-md">
         <div className="flex items-start space-x-2">
-          <AlertTriangle className="mt-0.5 min-w-4 min-h-4 text-warning" />
+          <AlertTriangle aria-hidden="true" className="mt-0.5 min-w-4 min-h-4 text-warning" />
           <div>
             <p className="font-medium text-warning text-sm">Security Notice</p>
             <p className="mt-1 text-warning text-xs">
-              To use this website, your browser and security key (or passkey manager) must support PRF (Pseudo-Random Function). Make sure you trust all installed extensions, those with access to
-              website data could potentially access your encryption keys.
+              Your browser and passkey provider must support PRF. Encryption keys are non-extractable and never leave this tab, but a browser extension with access to site data still runs alongside them — use a browser profile with no extensions installed for anything sensitive.
             </p>
           </div>
         </div>
       </div>
 
-      <AlertModal
-        isOpen={isAlertOpen}
-        onClose={onAlertClose}
-        title={alertConfig.title}
-        message={alertConfig.message}
-        type={alertConfig.type}
-      />
+      <AlertModal isOpen={isAlertOpen} onClose={onAlertClose} title={alertConfig.title} message={alertConfig.message} type={alertConfig.type} />
     </div>
   )
 }

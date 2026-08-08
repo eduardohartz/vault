@@ -4,30 +4,75 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  // The connection string lives in prisma.config.ts as of Prisma 7; the
+  // runtime client receives it through a driver adapter in lib/db.ts.
 }
 
 model User {
-  id           String   @id @default(uuid())
-  username     String   @unique
-  credentialId String   @unique
-  publicKey    String
-  createdAt    DateTime @default(now())
+  id       String @id @default(uuid())
+  username String @unique
+
+  // WebAuthn credential. credentialPublicKey is the COSE-encoded public key
+  // captured at registration; without it no assertion can be verified, which
+  // is why it is required rather than optional.
+  credentialId        String   @unique
+  credentialPublicKey Bytes
+  counter             Int      @default(0)
+  transports          String[] @default([])
+
+  // Client-side key derivation version. 1 = original (broken Keccak salt),
+  // 2 = corrected. Stored per user so existing vaults keep deriving the keys
+  // their files were encrypted with. See lib/keccak-helper-legacy.ts.
+  keyVersion Int @default(2)
+
+  createdAt DateTime @default(now())
 
   files       File[]
   sharedFiles SharedFile[]
+  sessions    Session[]
 
   @@map("users")
 }
 
+/// Server-issued WebAuthn challenges. Single use, short lived: a challenge is
+/// deleted the moment it is consumed so an assertion cannot be replayed.
+model Challenge {
+  id        String   @id @default(uuid())
+  challenge String   @unique
+  type      String
+  username  String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+  @@map("challenges")
+}
+
+/// Authenticated sessions. Only a SHA-256 hash of the token is stored, so a
+/// database leak does not hand out live sessions.
+model Session {
+  id         String   @id @default(uuid())
+  tokenHash  String   @unique
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// Vault files. There is deliberately no per-file salt: the vault key comes
+/// from the passkey PRF via HKDF, and the salts the original schema stored
+/// were random bytes that no derivation ever consumed.
 model File {
   id            String   @id @default(uuid())
   encryptedName String
   originalSize  Int
   encryptedPath String
-  salt          String
   iv            String
-  nameSalt      String
   nameIv        String
   uploadedAt    DateTime @default(now())
 
@@ -35,6 +80,7 @@ model File {
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   SharedFile SharedFile?
 
+  @@index([userId])
   @@map("files")
 }
 
@@ -57,5 +103,6 @@ model SharedFile {
   sharedById String
   sharedBy   User   @relation(fields: [sharedById], references: [id], onDelete: Cascade)
 
+  @@index([expiresAt])
   @@map("shared_files")
 }

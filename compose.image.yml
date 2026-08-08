@@ -1,0 +1,19 @@
+# Deploy from signed, published images instead of building locally.
+#
+#   ./scripts/verify-image.sh "$VAULT_IMAGE"
+#   ./scripts/verify-image.sh "$VAULT_MIGRATE_IMAGE"
+#   docker compose -f compose.yml -f compose.image.yml up -d
+#
+# Both variables must be pinned to a @sha256: digest. A tag can be repointed at
+# a different image after you verify it, which would make the verification
+# meaningless.
+services:
+  app:
+    image: ${VAULT_IMAGE:?set VAULT_IMAGE to a verified image@sha256:digest}
+    pull_policy: always
+    build: !reset null
+
+  migrate:
+    image: ${VAULT_MIGRATE_IMAGE:?set VAULT_MIGRATE_IMAGE to a verified image@sha256:digest}
+    pull_policy: always
+    build: !reset null

@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-
+import type { AuthenticatedUser } from "@/components/auth-page"
 import {
   Button,
   Card,
@@ -22,58 +22,54 @@ import {
   Spinner,
   useDisclosure,
 } from "@heroui/react"
-import { Copy, Download, FileIcon, FileLock2, Link, LogOut, Moon, MoreVertical, Share, ShareIcon as ShareOff, Shield, Sun, Trash2, Upload } from "lucide-react"
+import { Copy, Download, FileIcon, FileLock2, Link as LinkIcon, LogOut, Moon, MoreVertical, Share, ShareIcon as ShareOff, Shield, Sun, Trash2, Upload } from "lucide-react"
 import { useTheme } from "next-themes"
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import AlertModal from "@/components/alert-modal"
 import ShareConfirmationModal from "@/components/share-confirmation-modal"
+import { BufferHelper } from "@/lib/buffer-helper"
 import { CryptoManager } from "@/lib/crypto-manager"
+import { endSession } from "@/lib/session-client"
 
 type FileManagerProps = {
-  user: {
-    id: string
-    username: string
-    shareKey: string
-    privateKey: any
-    publicKey: any
-  }
+  user: AuthenticatedUser
   onLogout: () => void
+}
+
+type ShareSummary = {
+  shareToken: string
+  expiresAt: string | null
+  createdAt: string
 }
 
 type FileItem = {
   id: string
   encryptedName: string
   originalSize: number
-  encryptedPath: string
-  salt: string
   iv: string
-  nameSalt: string
   nameIv: string
   uploadedAt: string
-  userId: string
+  isShared: boolean
+  share: ShareSummary | null
   decryptedName?: string
-  isShared?: boolean
-  expiresAt?: string | null
 }
 
-type ShareInfo = {
-  id: string
-  shareToken: string
-  createdAt: string
-  expiresAt: string | null
-}
+const toBytes = (base64: string) => Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
 
 export default function FileManager({ user, onLogout }: FileManagerProps) {
   const [files, setFiles] = useState<FileItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [isUploading, setIsUploading] = useState(false)
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null)
   const [shareUrl, setShareUrl] = useState("")
-  const [shareInfo, setShareInfo] = useState<ShareInfo | null>(null)
-  const [showShareKey, setShowShareKey] = useState(false)
+  const [newShareKey, setNewShareKey] = useState<string | null>(null)
+  const [pendingShareKey, setPendingShareKey] = useState<string>("")
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { theme, setTheme } = useTheme()
+  const shareLinkId = useId()
+  const shareKeyId = useId()
 
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure()
   const { isOpen: isDeleteAccountOpen, onOpen: onDeleteAccountOpen, onClose: onDeleteAccountClose } = useDisclosure()
@@ -86,81 +82,87 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
     type: "info" as "success" | "error" | "warning" | "info",
   })
 
-  const showAlert = (title: string, message: string, type: "success" | "error" | "warning" | "info" = "info") => {
-    setAlertConfig({ title, message, type })
-    onAlertOpen()
-  }
+  const showAlert = useCallback(
+    (title: string, message: string, type: "success" | "error" | "warning" | "info" = "info") => {
+      setAlertConfig({ title, message, type })
+      onAlertOpen()
+    },
+    [onAlertOpen],
+  )
 
-  const loadFiles = async () => {
+  // Derive the vault key once. It was previously re-derived for every file on
+  // every render path, which is pure ECDH work repeated for no benefit.
+  const vaultKeyPromise = useMemo(
+    () => CryptoManager.deriveECDHKey(user.privateKey, user.publicKey),
+    [user.privateKey, user.publicKey],
+  )
+
+  /**
+   * Any request may come back 401 if the server session expired on its own TTL
+   * or was revoked from another tab. Lock immediately rather than leaving an
+   * unlocked-looking vault whose every action silently fails — the keys in
+   * memory are useless without a session, but the decrypted filenames on screen
+   * are not nothing.
+   */
+  const apiFetch = useCallback(async (input: string, init?: RequestInit): Promise<Response> => {
+    const response = await fetch(input, init)
+
+    if (response.status === 401) {
+      onLogout()
+      throw new Error("Your session has expired. Please sign in again.")
+    }
+
+    return response
+  }, [onLogout])
+
+  const loadFiles = useCallback(async () => {
+    setLoadError(null)
+
     try {
-      const response = await fetch(`/api/files`, {
-        headers: {
-          Authorization: `Bearer ${user.id}`,
-        },
-      })
+      const response = await apiFetch("/api/files")
       const data = await response.json()
 
-      if (response.ok) {
-        const filesWithDecryptedNames = await Promise.all(
-          data.files.map(async (file: FileItem) => {
-            try {
-              const nameIv = Uint8Array.from(atob(file.nameIv), (c) => c.charCodeAt(0))
-              const key = await CryptoManager.deriveECDHKey(user.privateKey.key, user.publicKey.key)
-              const decryptedName = await CryptoManager.decryptFilename(file.encryptedName, key, nameIv)
-
-              const shareResponse = await fetch(`/api/files/${file.id}/share`, {
-                headers: {
-                  Authorization: `Bearer ${user.id}`,
-                },
-              })
-              const shareData = await shareResponse.json()
-
-              return {
-                ...file,
-                decryptedName,
-                isShared: shareData,
-                expiresAt: shareData?.expiresAt || null,
-              }
-            } catch {
-              return {
-                ...file,
-                decryptedName: "[Decryption Failed]",
-                isShared: false,
-              }
-            }
-          }),
-        )
-
-        setFiles(filesWithDecryptedNames)
-      } else {
-        throw new Error("Failed to load files")
+      if (!response.ok) {
+        throw new Error(data.error ?? "Failed to load files")
       }
-    } catch {
+
+      const key = await vaultKeyPromise
+
+      const decrypted = await Promise.all(
+        (data.files as FileItem[]).map(async (file) => {
+          try {
+            return {
+              ...file,
+              decryptedName: await CryptoManager.decryptFilename(file.encryptedName, key, toBytes(file.nameIv)),
+            }
+          } catch {
+            return { ...file, decryptedName: "[Decryption failed]" }
+          }
+        }),
+      )
+
+      setFiles(decrypted)
+    } catch (error) {
+      // Previously an empty catch block: a failed load rendered an empty vault,
+      // indistinguishable from actually having no files.
+      console.error("Failed to load files:", error)
+      setLoadError(error instanceof Error ? error.message : "Failed to load files")
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [vaultKeyPromise, apiFetch])
 
   useEffect(() => {
-    loadFiles()
-  }, [user.id])
+    void loadFiles()
+  }, [loadFiles])
 
-  const handleLogout = () => {
-    localStorage.clear()
+  const handleLogout = useCallback(async () => {
+    // Shared with SessionGuard, so a manual logout and an automatic one revoke
+    // the session identically and neither fires twice.
+    await endSession()
     sessionStorage.clear()
-
-    setFiles([])
-    setSelectedFile(null)
-    setShareUrl("")
-    setShareInfo(null)
-    setShowShareKey(false)
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ""
-    }
-
     onLogout()
-  }
+  }, [onLogout])
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -172,56 +174,35 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
     setUploadProgress(0)
 
     try {
-      const salt = crypto.getRandomValues(new Uint8Array(16))
-      const nameSalt = crypto.getRandomValues(new Uint8Array(16))
-
-      setUploadProgress(10)
-
-      const key = await CryptoManager.deriveECDHKey(user.privateKey.key, user.publicKey.key)
-
-      setUploadProgress(25)
+      const key = await vaultKeyPromise
+      setUploadProgress(20)
 
       const { encryptedData, iv } = await CryptoManager.encryptFile(file, key)
-
-      setUploadProgress(50)
+      setUploadProgress(55)
 
       const { encryptedName, iv: nameIv } = await CryptoManager.encryptFilename(file.name, key)
-
-      setUploadProgress(75)
-      const encryptedBase64 = Buffer.from(encryptedData).toString("base64")
-      const ivBase64 = btoa(String.fromCharCode(...iv))
-      const saltBase64 = btoa(String.fromCharCode(...salt))
-      const nameIvBase64 = btoa(String.fromCharCode(...nameIv))
-      const nameSaltBase64 = btoa(String.fromCharCode(...nameSalt))
+      setUploadProgress(80)
 
       const formData = new FormData()
-      formData.append("encryptedData", encryptedBase64)
-      formData.append("iv", ivBase64)
-      formData.append("salt", saltBase64)
+      formData.append("encryptedData", BufferHelper.bytesToBase64(new Uint8Array(encryptedData)))
+      formData.append("iv", BufferHelper.bytesToBase64(iv))
       formData.append("encryptedName", encryptedName)
-      formData.append("nameIv", nameIvBase64)
-      formData.append("nameSalt", nameSaltBase64)
+      formData.append("nameIv", BufferHelper.bytesToBase64(nameIv))
       formData.append("originalSize", file.size.toString())
 
-      const response = await fetch("/api/files", {
-        method: "POST",
-        body: formData,
-        headers: {
-          Authorization: `Bearer ${user.id}`,
-        },
-      })
-
+      const response = await apiFetch("/api/files", { method: "POST", body: formData })
+      const data = await response.json()
       setUploadProgress(100)
 
-      if (response.ok) {
-        await loadFiles()
-        showAlert("Upload Successful", `"${file.name}" has been encrypted and uploaded successfully.`, "success")
-      } else {
-        throw new Error("Upload failed")
+      if (!response.ok) {
+        throw new Error(data.error ?? "Upload failed")
       }
-    } catch (e) {
-      console.error("File upload error:", e)
-      showAlert("Upload Failed", "Failed to upload file. Please try again.", "error")
+
+      await loadFiles()
+      showAlert("Upload Successful", `"${file.name}" has been encrypted and uploaded.`, "success")
+    } catch (error) {
+      console.error("File upload error:", error)
+      showAlert("Upload Failed", error instanceof Error ? error.message : "Failed to upload file.", "error")
     } finally {
       setIsUploading(false)
       setUploadProgress(0)
@@ -231,231 +212,160 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
     }
   }
 
+  const fetchAndDecrypt = useCallback(
+    async (file: FileItem): Promise<ArrayBuffer> => {
+      const response = await apiFetch(`/api/files/${file.id}`)
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "Failed to fetch file")
+      }
+
+      const key = await vaultKeyPromise
+      return CryptoManager.decryptFile(toBytes(data.file.encryptedData).buffer as ArrayBuffer, key, toBytes(data.file.iv))
+    },
+    [vaultKeyPromise, apiFetch],
+  )
+
+  const triggerDownload = (data: BlobPart, name: string) => {
+    const url = URL.createObjectURL(new Blob([data]))
+    const anchor = document.createElement("a")
+    anchor.href = url
+    anchor.download = name
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    URL.revokeObjectURL(url)
+  }
+
   const handleFileDownload = async (file: FileItem) => {
     try {
-      const response = await fetch(`/api/files/${file.id}`, {
-        headers: {
-          Authorization: `Bearer ${user.id}`,
-        },
-      })
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error("Failed to fetch file")
-      }
-
-      const fileData = data.file
-
-      const encryptedData = Uint8Array.from(atob(fileData.encryptedData), (c) => c.charCodeAt(0))
-      const iv = Uint8Array.from(atob(fileData.iv), (c) => c.charCodeAt(0))
-
-      const key = await CryptoManager.deriveECDHKey(user.privateKey.key, user.publicKey.key)
-
-      const decryptedData = await CryptoManager.decryptFile(encryptedData.buffer, key, iv)
-
-      const blob = new Blob([decryptedData])
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = file.decryptedName || "download"
-      // deepcode ignore DOMXSS: Not an issue
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-
-      showAlert("Download Complete", `"${file.decryptedName}" has been downloaded successfully.`, "success")
-    } catch {
-      showAlert("Download Failed", "Failed to decrypt and download file.", "error")
+      triggerDownload(await fetchAndDecrypt(file), file.decryptedName || "download")
+      showAlert("Download Complete", `"${file.decryptedName}" has been downloaded.`, "success")
+    } catch (error) {
+      console.error("Download failed:", error)
+      showAlert("Download Failed", error instanceof Error ? error.message : "Failed to decrypt and download file.", "error")
     }
   }
 
-  const getFile = async (file: FileItem) => {
-    try {
-      const response = await fetch(`/api/files/${file.id}`, {
-        headers: {
-          Authorization: `Bearer ${user.id}`,
-        },
-      })
-      const data = await response.json()
+  const handleFileShare = (file: FileItem) => {
+    setSelectedFile(file)
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch file")
-      }
-
-      const fileData = data.file
-      const encryptedData = Uint8Array.from(atob(fileData.encryptedData), (c) => c.charCodeAt(0))
-      const iv = Uint8Array.from(atob(fileData.iv), (c) => c.charCodeAt(0))
-
-      const key = await CryptoManager.deriveECDHKey(user.privateKey.key, user.publicKey.key)
-      const decryptedData = await CryptoManager.decryptFile(encryptedData.buffer, key, iv)
-
-      const decryptedFile = new File([decryptedData], file.decryptedName || "download", { type: "application/octet-stream" })
-      return decryptedFile
-    } catch {
-      showAlert("Decryption Failed", "Failed to decrypt file.", "error")
+    if (file.isShared && file.share) {
+      // The per-share key is generated in the browser and never stored, so an
+      // existing share can show its link but not its key.
+      setShareUrl(`${window.location.origin}/share/${file.share.shareToken}`)
+      setNewShareKey(null)
+      onShareOpen()
+      return
     }
+
+    // A fresh random key per share, generated as the modal opens. Every share
+    // used to reuse one key derived from the user's master key, so handing it to
+    // one recipient exposed every file they had ever shared or would share.
+    setPendingShareKey(CryptoManager.generateShareKey())
+    onShareConfirmOpen()
   }
 
-  const handleFileShare = async (file: FileItem) => {
-    if (file.isShared) {
-      try {
-        const response = await fetch(`/api/files/${file.id}/share`, {
-          headers: {
-            Authorization: `Bearer ${user.id}`,
-          },
-        })
-        const data = await response.json()
-
-        if (response.ok && data) {
-          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
-          setShareUrl(`${baseUrl}/share/${data.shareToken}`)
-          setShareInfo(data)
-          setSelectedFile(file)
-          onShareOpen()
-        }
-      } catch {
-        showAlert("Share Failed", "Failed to get share link.", "error")
-      }
-    } else {
-      setSelectedFile(file)
-      onShareConfirmOpen()
-    }
-  }
-
-  const handleShareConfirm = async (expiryMinutes: number | null, shareKey: string) => {
+  const handleShareConfirm = async (expiryMinutes: number | null) => {
+    const shareKey = pendingShareKey
     if (!selectedFile) {
       return
     }
 
     try {
-      const expiresAt = expiryMinutes ? new Date(Date.now() + expiryMinutes * 60 * 1000).toISOString() : null
-
-      const file = await getFile(selectedFile)
-
-      if (!file) {
-        throw new Error("Failed to retrieve file for sharing")
-      }
+      const plaintext = await fetchAndDecrypt(selectedFile)
 
       const salt = crypto.getRandomValues(new Uint8Array(16))
       const nameSalt = crypto.getRandomValues(new Uint8Array(16))
-      const key = await CryptoManager.deriveECDHKeyFromShared(shareKey.trim(), salt)
-      const nameKey = await CryptoManager.deriveECDHKeyFromShared(shareKey.trim(), nameSalt)
+      const fileKey = await CryptoManager.deriveShareKey(shareKey, salt)
+      const nameKey = await CryptoManager.deriveShareKey(shareKey, nameSalt)
 
-      const { encryptedData, iv } = await CryptoManager.encryptFile(file, key)
-
-      const { encryptedName, iv: nameIv } = await CryptoManager.encryptFilename(file.name, nameKey)
-
-      const encryptedBase64 = Buffer.from(encryptedData).toString("base64")
-      const ivBase64 = btoa(String.fromCharCode(...iv))
-      const saltBase64 = btoa(String.fromCharCode(...salt))
-      const nameIvBase64 = btoa(String.fromCharCode(...nameIv))
-      const nameSaltBase64 = btoa(String.fromCharCode(...nameSalt))
+      const { encryptedData, iv } = await CryptoManager.encryptFile(plaintext, fileKey)
+      const { encryptedName, iv: nameIv } = await CryptoManager.encryptFilename(selectedFile.decryptedName || "shared-file", nameKey)
 
       const formData = new FormData()
-      formData.append("encryptedData", encryptedBase64)
-      formData.append("iv", ivBase64)
-      formData.append("salt", saltBase64)
+      formData.append("encryptedData", BufferHelper.bytesToBase64(new Uint8Array(encryptedData)))
+      formData.append("iv", BufferHelper.bytesToBase64(iv))
+      formData.append("salt", BufferHelper.bytesToBase64(salt))
       formData.append("encryptedName", encryptedName)
-      formData.append("nameIv", nameIvBase64)
-      formData.append("nameSalt", nameSaltBase64)
-      formData.append("originalSize", file.size.toString())
-      formData.append("expiresAt", expiresAt || "")
+      formData.append("nameIv", BufferHelper.bytesToBase64(nameIv))
+      formData.append("nameSalt", BufferHelper.bytesToBase64(nameSalt))
+      formData.append("originalSize", plaintext.byteLength.toString())
+      if (expiryMinutes) {
+        formData.append("expiresAt", new Date(Date.now() + expiryMinutes * 60 * 1000).toISOString())
+      }
 
-      const response = await fetch(`/api/files/${selectedFile.id}/share`, {
-        method: "POST",
-        body: formData,
-        headers: {
-          Authorization: `Bearer ${user.id}`,
-        },
-      })
-
+      const response = await apiFetch(`/api/files/${selectedFile.id}/share`, { method: "POST", body: formData })
       const data = await response.json()
 
-      if (response.ok) {
-        setShareUrl(data.shareUrl)
-        setShareInfo({
-          id: "new",
-          shareToken: data.shareToken,
-          createdAt: new Date().toISOString(),
-          expiresAt,
-        })
-        onShareOpen()
-        await loadFiles()
-        showAlert("Share Created", "Share link created successfully!", "success")
-      } else {
-        throw new Error("Failed to create share")
+      if (!response.ok) {
+        throw new Error(data.error ?? "Failed to create share")
       }
-    } catch (e) {
-      console.error("Share creation error:", e)
-      showAlert("Share Failed", "Failed to create share link.", "error")
+
+      setShareUrl(data.shareUrl)
+      setNewShareKey(shareKey)
+      onShareOpen()
+      await loadFiles()
+    } catch (error) {
+      console.error("Share creation error:", error)
+      showAlert("Share Failed", error instanceof Error ? error.message : "Failed to create share link.", "error")
     }
   }
 
   const handleUnshare = async (file: FileItem) => {
     try {
-      const response = await fetch(`/api/files/${file.id}/share`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${user.id}`,
-        },
-      })
+      const response = await apiFetch(`/api/files/${file.id}/share`, { method: "DELETE" })
 
-      if (response.ok) {
-        await loadFiles()
-        showAlert("Unshared Successfully", `"${file.decryptedName}" is no longer shared.`, "success")
-      } else {
-        throw new Error("Failed to unshare file")
+      if (!response.ok) {
+        throw new Error((await response.json()).error ?? "Failed to unshare file")
       }
-    } catch {
-      showAlert("Unshare Failed", "Failed to unshare file.", "error")
+
+      await loadFiles()
+      showAlert("Unshared", `"${file.decryptedName}" is no longer shared.`, "success")
+    } catch (error) {
+      console.error("Unshare failed:", error)
+      showAlert("Unshare Failed", error instanceof Error ? error.message : "Failed to unshare file.", "error")
     }
   }
 
   const handleFileDelete = async (fileId: string) => {
     try {
-      const response = await fetch(`/api/files/${fileId}`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${user.id}`,
-        },
-      })
+      const response = await apiFetch(`/api/files/${fileId}`, { method: "DELETE" })
 
-      if (response.ok) {
-        await loadFiles()
-        onDeleteClose()
-        showAlert("File Deleted", "File has been permanently deleted.", "success")
-      } else {
-        throw new Error("Delete failed")
+      if (!response.ok) {
+        throw new Error((await response.json()).error ?? "Delete failed")
       }
-    } catch {
-      showAlert("Delete Failed", "Failed to delete file.", "error")
+
+      await loadFiles()
+      onDeleteClose()
+      showAlert("File Deleted", "File has been permanently deleted.", "success")
+    } catch (error) {
+      console.error("Delete failed:", error)
+      showAlert("Delete Failed", error instanceof Error ? error.message : "Failed to delete file.", "error")
     }
   }
 
-  const handleAccountDelete = async (user: { id: string, shareKey: string }) => {
+  const handleAccountDelete = async () => {
     onDeleteAccountClose()
     try {
-      const response = await fetch(`/api/auth/delete`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${user.id}`,
-        },
-      })
-      if (response.ok) {
-        handleLogout()
-      } else {
-        showAlert("Delete Failed", "Failed to delete account. Please try again later.", "error")
+      const response = await apiFetch("/api/auth/delete", { method: "DELETE" })
+
+      if (!response.ok) {
+        throw new Error((await response.json()).error ?? "Failed to delete account")
       }
-    } catch {
-      showAlert("Delete Failed", "Failed to delete account. Please try again later.", "error")
+
+      await handleLogout()
+    } catch (error) {
+      console.error("Account deletion failed:", error)
+      showAlert("Delete Failed", error instanceof Error ? error.message : "Failed to delete account.", "error")
     }
   }
 
   const copyToClipboard = async (text: string, label: string) => {
     try {
       await navigator.clipboard.writeText(text)
-      showAlert("Copied!", `${label} copied to clipboard.`, "success")
+      showAlert("Copied", `${label} copied to clipboard.`, "success")
     } catch {
       showAlert("Copy Failed", `Failed to copy ${label}.`, "error")
     }
@@ -467,67 +377,65 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
     }
     const k = 1024
     const sizes = ["Bytes", "KB", "MB", "GB"]
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1)
     return `${Number.parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}`
   }
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
+  const formatDate = (value: string | null) => {
+    if (!value) {
+      return "Never"
+    }
+    const date = new Date(value)
+    return Number.isNaN(date.getTime())
+      ? "Unknown"
+      : date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
   }
+
+  const isExpired = (share: ShareSummary | null) => Boolean(share?.expiresAt && new Date(share.expiresAt).getTime() <= Date.now())
 
   return (
     <div className="bg-background min-h-screen">
-      <div className="bg-content1 border-divider border-b">
+      <header className="bg-content1 border-divider border-b">
         <div className="mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl">
-          <div className="flex justify-between items-center h-16">
+          <div className="flex flex-wrap justify-between items-center gap-2 py-3">
             <div className="flex items-center space-x-3">
-              <Shield className="w-6 h-6 text-primary" />
-              <h1 className="font-semibold text-xl">Eduardo's Vault</h1>
+              <Shield aria-hidden="true" className="w-6 h-6 text-primary" />
+              <h1 className="font-semibold text-lg sm:text-xl">Vault</h1>
             </div>
 
-            <div className="flex items-center space-x-3">
-              <Chip
-                variant="flat"
-                color="primary"
-                size="sm"
-              >
+            <div className="flex items-center gap-2">
+              <Chip variant="flat" color="primary" size="sm">
                 {user.username}
               </Chip>
 
+              <Button
+                isIconOnly
+                variant="ghost"
+                className="min-w-11 min-h-11"
+                aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+                onPress={() => setTheme(theme === "dark" ? "light" : "dark")}
+              >
+                {theme === "dark" ? <Sun aria-hidden="true" className="w-4 h-4" /> : <Moon aria-hidden="true" className="w-4 h-4" />}
+              </Button>
+
+              <Button variant="ghost" className="hidden sm:flex min-h-11" onPress={handleLogout} startContent={<LogOut aria-hidden="true" className="w-4 h-4" />}>
+                Logout
+              </Button>
+
               <Dropdown>
                 <DropdownTrigger>
-                  <Button
-                    isIconOnly
-                    variant="ghost"
-                  >
-                    <MoreVertical className="w-4 h-4" />
+                  <Button isIconOnly variant="ghost" className="min-w-11 min-h-11" aria-label="Account menu">
+                    <MoreVertical aria-hidden="true" className="w-4 h-4" />
                   </Button>
                 </DropdownTrigger>
-                <DropdownMenu>
-                  <DropdownItem
-                    key="share-key"
-                    startContent={<Copy className="w-4 h-4" />}
-                    onPress={() => setShowShareKey(!showShareKey)}
-                  >
-                    {showShareKey ? "Hide Share Key" : "Show Share Key"}
-                  </DropdownItem>
-                  <DropdownItem
-                    key="copy-share-key"
-                    startContent={<Share className="w-4 h-4" />}
-                    onPress={() => copyToClipboard(user.shareKey, "Share key")}
-                  >
-                    Copy Share Key
+                <DropdownMenu aria-label="Account actions">
+                  <DropdownItem key="logout" className="sm:hidden" startContent={<LogOut aria-hidden="true" className="w-4 h-4" />} onPress={handleLogout}>
+                    Logout
                   </DropdownItem>
                   <DropdownItem
                     key="delete-account"
-                    startContent={<Trash2 className="w-4 h-4" />}
-                    onPress={() => onDeleteAccountOpen()}
+                    startContent={<Trash2 aria-hidden="true" className="w-4 h-4" />}
+                    onPress={onDeleteAccountOpen}
                     color="danger"
                     className="text-danger"
                   >
@@ -535,83 +443,37 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
                   </DropdownItem>
                 </DropdownMenu>
               </Dropdown>
-
-              <Button
-                isIconOnly
-                variant="ghost"
-                onPress={() => setTheme(theme === "dark" ? "light" : "dark")}
-              >
-                {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-              </Button>
-
-              <Button
-                variant="ghost"
-                onPress={handleLogout}
-                startContent={<LogOut className="w-4 h-4" />}
-              >
-                Logout
-              </Button>
             </div>
           </div>
         </div>
-      </div>
+      </header>
 
-      <div className="mx-auto px-4 sm:px-6 lg:px-8 py-8 max-w-7xl">
-        {showShareKey && (
-          <Card className="mb-6">
-            <CardHeader>
-              <h2 className="font-semibold text-lg">Your Share Key</h2>
-            </CardHeader>
-            <CardBody>
-              <div className="flex items-center space-x-2">
-                <code className="flex-1 bg-default-100 p-2 rounded text-sm break-all">{user.shareKey}</code>
-                <Button
-                  size="sm"
-                  onPress={() => copyToClipboard(user.shareKey, "Share key")}
-                  startContent={<Copy className="w-4 h-4" />}
-                >
-                  Copy
-                </Button>
-              </div>
-              <p className="mt-2 text-default-600 text-sm">Share this key with others to allow them to decrypt files you share with them.</p>
-            </CardBody>
-          </Card>
-        )}
-
+      <main className="mx-auto px-4 sm:px-6 lg:px-8 py-8 max-w-7xl">
         <Card className="mb-6 p-1">
-          <CardHeader className="flex justify-between items-center">
+          <CardHeader className="flex sm:flex-row flex-col justify-between items-start sm:items-center gap-4">
             <div className="flex flex-col items-start">
               <h2 className="font-semibold text-lg">Upload Files</h2>
               <div className="flex items-center space-x-1 mt-1">
-                <FileLock2 className="w-4 h-4" />
-                <p className="text-default-600 text-sm"> Files are end-to-end encrypted</p>
+                <FileLock2 aria-hidden="true" className="w-4 h-4" />
+                <p className="text-default-600 text-sm">Files are end-to-end encrypted</p>
               </div>
             </div>
-            <div className="flex items-center space-x-4">
-              <input
-                ref={fileInputRef}
-                type="file"
-                onChange={handleFileUpload}
-                className="hidden"
-                disabled={isUploading}
-              />
+
+            <div className="flex sm:flex-row flex-col items-stretch sm:items-center gap-3 w-full sm:w-auto">
+              <input ref={fileInputRef} type="file" onChange={handleFileUpload} className="hidden" disabled={isUploading} aria-label="Choose a file to upload" />
 
               {isUploading && (
-                <div className="flex-1 w-72">
-                  <Progress
-                    value={uploadProgress}
-                    color="primary"
-                    size="sm"
-                    showValueLabel
-                  />
+                <div className="w-full sm:w-72">
+                  <Progress value={uploadProgress} color="primary" size="sm" showValueLabel aria-label="Upload progress" />
                 </div>
               )}
 
               <Button
                 color="primary"
+                className="w-full sm:w-auto min-h-11"
                 onPress={() => fileInputRef.current?.click()}
                 isDisabled={isUploading}
-                startContent={<Upload className="w-4 h-4" />}
+                startContent={<Upload aria-hidden="true" className="w-4 h-4" />}
               >
                 Choose File
               </Button>
@@ -620,46 +482,53 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
         </Card>
 
         <Card>
-          <CardHeader className="flex justify-between items-center px-5 border-divider border-b">
+          <CardHeader className="flex flex-wrap justify-between items-center gap-2 px-5 border-divider border-b">
             <h2 className="font-semibold text-md">
               Vault Files (
               {files.length}
               )
             </h2>
-            <h2 className="text-md">
-              {formatFileSize(files.reduce((sum, file) => sum + file.originalSize, 0))}
-              {" "}
-              / ∞
-            </h2>
+            <p className="text-md">{formatFileSize(files.reduce((sum, file) => sum + file.originalSize, 0))}</p>
           </CardHeader>
-          <CardBody className="bg-foreground-100/50 m-5 ml-5 pt-0 rounded-lg w-auto">
+          <CardBody className="bg-foreground-100/50 m-3 sm:m-5 pt-0 rounded-lg">
             {isLoading ? (
               <div className="py-8 text-center">
-                <Spinner size="lg" />
+                <Spinner size="lg" label="Loading your files" />
+              </div>
+            ) : loadError ? (
+              <div className="py-8 text-center">
+                <p className="mb-3 text-danger">{loadError}</p>
+                <Button
+                  className="min-h-11"
+                  onPress={() => {
+                    setIsLoading(true)
+                    void loadFiles()
+                  }}
+                >
+                  Try again
+                </Button>
               </div>
             ) : files.length === 0 ? (
               <div className="py-8 text-default-500 text-center">No files uploaded yet</div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full min-w-[640px]">
+                  <caption className="sr-only">Your encrypted files</caption>
                   <thead>
                     <tr className="border-divider border-b">
-                      <th className="px-4 py-3 font-medium text-left">Name</th>
-                      <th className="px-4 py-3 font-medium text-left">Size</th>
-                      <th className="px-4 py-3 font-medium text-left">Uploaded</th>
-                      <th className="px-4 py-3 font-medium text-left">Status</th>
-                      <th className="px-4 py-3 font-medium text-right">Actions</th>
+                      <th scope="col" className="px-4 py-3 font-medium text-left">Name</th>
+                      <th scope="col" className="px-4 py-3 font-medium text-left">Size</th>
+                      <th scope="col" className="px-4 py-3 font-medium text-left">Uploaded</th>
+                      <th scope="col" className="px-4 py-3 font-medium text-left">Status</th>
+                      <th scope="col" className="px-4 py-3 font-medium text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {files.map((file) => (
-                      <tr
-                        key={file.id}
-                        className="border-divider border-b"
-                      >
+                      <tr key={file.id} className="border-divider border-b">
                         <td className="px-4 py-3">
                           <div className="flex items-center space-x-2">
-                            <FileIcon className="w-4 h-4 text-default-400" />
+                            <FileIcon aria-hidden="true" className="w-4 h-4 text-default-400" />
                             <span className="font-medium">{file.decryptedName}</span>
                           </div>
                         </td>
@@ -667,68 +536,47 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
                         <td className="px-4 py-3">{formatDate(file.uploadedAt)}</td>
                         <td className="px-4 py-3">
                           {file.isShared ? (
-                            file.expiresAt && new Date(file.expiresAt).getTime() <= Date.now() ? (
-                              <Chip
-                                size="sm"
-                                color="warning"
-                                variant="flat"
-                              >
-                                Shared (expired)
-                              </Chip>
-                            ) : (
-                              <Chip
-                                size="sm"
-                                color="success"
-                                variant="flat"
-                              >
-                                Shared
-                              </Chip>
-                            )
+                            <Chip size="sm" color={isExpired(file.share) ? "warning" : "success"} variant="flat">
+                              {isExpired(file.share) ? "Shared (expired)" : "Shared"}
+                            </Chip>
                           ) : (
-                            <Chip
-                              size="sm"
-                              color="default"
-                              variant="flat"
-                            >
+                            <Chip size="sm" color="default" variant="flat">
                               Private
                             </Chip>
                           )}
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <div className="flex justify-end space-x-2">
+                          <div className="flex justify-end gap-1">
                             <Button
                               isIconOnly
-                              size="sm"
                               variant="light"
+                              className="min-w-11 min-h-11"
                               onPress={() => handleFileDownload(file)}
-                              aria-label="Download"
+                              aria-label={`Download ${file.decryptedName}`}
                             >
-                              <Download className="w-4 h-4" />
+                              <Download aria-hidden="true" className="w-4 h-4" />
                             </Button>
+
                             {file.isShared ? (
                               <Dropdown>
                                 <DropdownTrigger>
                                   <Button
                                     isIconOnly
-                                    size="sm"
                                     variant="light"
                                     color="success"
-                                    aria-label="Share options"
+                                    className="min-w-11 min-h-11"
+                                    aria-label={`Share options for ${file.decryptedName}`}
                                   >
-                                    <Share className="w-4 h-4" />
+                                    <Share aria-hidden="true" className="w-4 h-4" />
                                   </Button>
                                 </DropdownTrigger>
-                                <DropdownMenu>
-                                  <DropdownItem
-                                    key="view-share"
-                                    startContent={<Share className="w-4 h-4" />}
-                                    onPress={() => handleFileShare(file)}
-                                  >
+                                <DropdownMenu aria-label={`Share actions for ${file.decryptedName}`}>
+                                  <DropdownItem key="view-share" startContent={<Share aria-hidden="true" className="w-4 h-4" />} onPress={() => handleFileShare(file)}>
                                     View Share Link
                                   </DropdownItem>
                                   <DropdownItem
                                     key="unshare"
-                                    startContent={<ShareOff className="w-4 h-4" />}
+                                    startContent={<ShareOff aria-hidden="true" className="w-4 h-4" />}
                                     className="text-danger"
                                     color="danger"
                                     onPress={() => handleUnshare(file)}
@@ -740,27 +588,27 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
                             ) : (
                               <Button
                                 isIconOnly
-                                size="sm"
                                 variant="light"
-                                color="default"
+                                className="min-w-11 min-h-11"
                                 onPress={() => handleFileShare(file)}
-                                aria-label="Share"
+                                aria-label={`Share ${file.decryptedName}`}
                               >
-                                <Share className="w-4 h-4" />
+                                <Share aria-hidden="true" className="w-4 h-4" />
                               </Button>
                             )}
+
                             <Button
                               isIconOnly
-                              size="sm"
                               variant="light"
                               color="danger"
+                              className="min-w-11 min-h-11"
                               onPress={() => {
                                 setSelectedFile(file)
                                 onDeleteOpen()
                               }}
-                              aria-label="Delete"
+                              aria-label={`Delete ${file.decryptedName}`}
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 aria-hidden="true" className="w-4 h-4" />
                             </Button>
                           </div>
                         </td>
@@ -772,38 +620,25 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
             )}
           </CardBody>
         </Card>
-      </div>
+      </main>
 
-      <Modal
-        isOpen={isDeleteOpen}
-        onClose={onDeleteClose}
-      >
+      <Modal isOpen={isDeleteOpen} onClose={onDeleteClose}>
         <ModalContent>
           <ModalHeader>Delete File</ModalHeader>
           <ModalBody>
             <p>
               Are you sure you want to delete
               {" "}
-              <strong>
-                "
-                {selectedFile?.decryptedName}
-                "
-              </strong>
+              <strong>{selectedFile?.decryptedName}</strong>
               ?
             </p>
-            <p className="text-default-600 text-sm">This action cannot be undone and will also remove any shared links.</p>
+            <p className="text-default-600 text-sm">This cannot be undone and will also remove any share link.</p>
           </ModalBody>
           <ModalFooter>
-            <Button
-              variant="ghost"
-              onPress={onDeleteClose}
-            >
+            <Button variant="ghost" className="min-h-11" onPress={onDeleteClose}>
               Cancel
             </Button>
-            <Button
-              color="danger"
-              onPress={() => selectedFile && handleFileDelete(selectedFile.id)}
-            >
+            <Button color="danger" className="min-h-11" onPress={() => selectedFile && handleFileDelete(selectedFile.id)}>
               Delete
             </Button>
           </ModalFooter>
@@ -815,13 +650,10 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
         onClose={onShareConfirmClose}
         onConfirm={handleShareConfirm}
         fileName={selectedFile?.decryptedName || ""}
-        userShareKey={user.shareKey}
+        shareKey={pendingShareKey}
       />
 
-      <Modal
-        isOpen={isShareOpen}
-        onClose={onShareClose}
-      >
+      <Modal isOpen={isShareOpen} onClose={onShareClose} scrollBehavior="inside">
         <ModalContent>
           <ModalHeader>
             Share "
@@ -829,116 +661,88 @@ export default function FileManager({ user, onLogout }: FileManagerProps) {
             "
           </ModalHeader>
           <ModalBody>
-            <p className="mb-4">
-              {shareInfo && shareInfo.id === "new"
-                ? "Your file has been shared! Send both the link and your share key to the recipient."
-                : "This file is already shared. You can copy the existing share link below."}
-            </p>
-
             <div className="space-y-4">
-              <div>
-                <label className="font-medium text-sm">Share Link:</label>
-                <div className="flex items-center space-x-2 mt-1">
+              <Input
+                id={shareLinkId}
+                label="Share link"
+                value={shareUrl}
+                readOnly
+                size="sm"
+                startContent={<LinkIcon aria-hidden="true" className="w-4 h-4" />}
+                endContent={(
+                  <Button isIconOnly size="sm" variant="light" aria-label="Copy share link" onPress={() => copyToClipboard(shareUrl, "Share link")}>
+                    <Copy aria-hidden="true" className="w-4 h-4" />
+                  </Button>
+                )}
+              />
+
+              {newShareKey ? (
+                <>
                   <Input
-                    value={shareUrl}
+                    id={shareKeyId}
+                    label="Share key"
+                    value={newShareKey}
                     readOnly
                     size="sm"
-                    startContent={<Link className="w-4 h-4" />}
+                    className="font-mono"
+                    startContent={<Shield aria-hidden="true" className="w-4 h-4" />}
+                    endContent={(
+                      <Button isIconOnly size="sm" variant="light" aria-label="Copy share key" onPress={() => copyToClipboard(newShareKey, "Share key")}>
+                        <Copy aria-hidden="true" className="w-4 h-4" />
+                      </Button>
+                    )}
                   />
-                  <Button
-                    size="sm"
-                    onPress={() => copyToClipboard(shareUrl, "Share link")}
-                  >
-                    Copy
-                  </Button>
+                  <div className="bg-warning/10 p-3 border border-warning/20 rounded-lg">
+                    <p className="text-warning text-sm">
+                      Copy this key now — it is never sent to the server and cannot be shown again. Send it to the recipient separately from the link; both are required to decrypt the file.
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <div className="bg-default-100 p-3 rounded-lg">
+                  <p className="text-default-600 text-sm">
+                    This file is already shared. Its share key was shown only when the link was created and is not stored anywhere. If you no longer have it, unshare the file and create a new link.
+                  </p>
                 </div>
-              </div>
+              )}
 
-              <div>
-                <label className="font-medium text-sm">Your Share Key:</label>
-                <div className="flex items-center space-x-2 mt-1">
-                  <Input
-                    value={user.shareKey}
-                    readOnly
-                    size="sm"
-                    startContent={<Shield className="w-4 h-4" />}
-                  />
-                  <Button
-                    size="sm"
-                    onPress={() => copyToClipboard(user.shareKey, "Share key")}
-                  >
-                    Copy
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-warning/10 mt-4 p-3 border border-warning/20 rounded-lg">
-              <p className="text-warning text-sm">⚠️ Both the link AND your share key are required to decrypt the file. Make sure to send both to the recipient through secure channels.</p>
-            </div>
-
-            {shareInfo && (
-              <div className="mt-4">
-                <p className="mb-2 font-medium text-sm">Share Details:</p>
+              {selectedFile?.share && (
                 <div className="text-default-600 text-xs">
                   <p>
                     Created:
-                    {formatDate(shareInfo.createdAt)}
+                    {" "}
+                    {formatDate(selectedFile.share.createdAt)}
                   </p>
                   <p>
                     Expires:
-                    {shareInfo.expiresAt ? formatDate(shareInfo.expiresAt) : "Never"}
+                    {" "}
+                    {formatDate(selectedFile.share.expiresAt)}
                   </p>
-                  {shareInfo.expiresAt && new Date(shareInfo.expiresAt).getTime() <= Date.now() ? (
-                    <p className="mt-1 text-danger">This share has expired. Delete it and create a new one to share the file again.</p>
-                  ) : (
-                    <p className="mt-1 text-success">This share is active.</p>
-                  )}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </ModalBody>
           <ModalFooter>
-            <Button
-              color="primary"
-              onPress={onShareClose}
-            >
+            <Button color="primary" className="min-h-11" onPress={onShareClose}>
               Done
             </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
 
-      <AlertModal
-        isOpen={isAlertOpen}
-        onClose={onAlertClose}
-        title={alertConfig.title}
-        message={alertConfig.message}
-        type={alertConfig.type}
-      />
+      <AlertModal isOpen={isAlertOpen} onClose={onAlertClose} title={alertConfig.title} message={alertConfig.message} type={alertConfig.type} />
 
-      <Modal
-        isOpen={isDeleteAccountOpen}
-        onClose={onDeleteAccountClose}
-        placement="center"
-        backdrop="opaque"
-      >
+      <Modal isOpen={isDeleteAccountOpen} onClose={onDeleteAccountClose} placement="center" backdrop="opaque">
         <ModalContent>
           <ModalHeader>Delete Account</ModalHeader>
           <ModalBody>
-            <p>Are you sure you want to delete your account and all files? This action cannot be undone.</p>
+            <p>Are you sure you want to delete your account and all files? This cannot be undone.</p>
           </ModalBody>
           <ModalFooter>
-            <Button
-              color="primary"
-              onPress={onDeleteAccountClose}
-            >
+            <Button color="primary" className="min-h-11" onPress={onDeleteAccountClose}>
               Cancel
             </Button>
-            <Button
-              color="danger"
-              onPress={() => handleAccountDelete(user)}
-            >
+            <Button color="danger" className="min-h-11" onPress={handleAccountDelete}>
               Confirm
             </Button>
           </ModalFooter>

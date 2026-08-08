@@ -3,44 +3,7 @@ import { CryptoManager } from "./crypto-manager"
 export type Point = { x: bigint, y: bigint }
 
 export class BufferHelper {
-  static convertBufferType<T extends ArrayBufferView>(sourceBuff: ArrayBufferView, OutputType: new (buffer: ArrayBuffer) => T): T {
-    const buffer = new ArrayBuffer(sourceBuff.byteLength)
-    const SourceType = BufferHelper.getBufferTypedArrayConstructor(Object.prototype.toString.call(sourceBuff))
-    const sourceView = new SourceType(buffer)
-    sourceView.set(sourceBuff as any)
-    return new OutputType(buffer)
-  }
-
-  static toArrayBuffer(input: BufferSource): ArrayBuffer {
-    if (input instanceof ArrayBuffer) {
-      return input
-    }
-
-    if (ArrayBuffer.isView(input)) {
-      return input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength) as ArrayBuffer
-    }
-
-    throw new TypeError("Input must be a BufferSource (ArrayBuffer or TypedArray)")
-  }
-
-  static bufferPush(source_buff: ArrayBufferView, new_values: number): ArrayBufferView {
-    const Source_buff_type = BufferHelper.getBufferTypedArrayConstructor(Object.prototype.toString.call(source_buff))
-    const new_ab = new Source_buff_type((source_buff as any).length + 1)
-    new_ab.set(source_buff as any, 0)
-    new_ab[new_ab.length - 1] = new_values
-    return new_ab
-  }
-
-  static getBufferTypedArrayConstructor(tag: string): any {
-    const typeName = tag.substring(8, tag.length - 1)
-    const ctor = (globalThis as any)[typeName]
-    if (ctor && typeof ctor === "function") {
-      return ctor
-    }
-    throw new TypeError(`Invalid typed array type tag: ${tag}`)
-  }
-
-  static bufferToHex(buffer: Uint8Array): string {
+  static bufferToHex(buffer: Uint8Array<ArrayBufferLike>): string {
     const table = "0123456789abcdef"
     const output = Array.from({ length: buffer.length * 2 })
 
@@ -78,6 +41,45 @@ export class BufferHelper {
 
   static hasProperty(prop: unknown): boolean {
     return prop !== "" && prop !== null && prop !== undefined
+  }
+
+  /**
+   * Encode bytes as standard base64.
+   *
+   * Chunked rather than `btoa(String.fromCharCode(...bytes))`, which throws
+   * "Maximum call stack size exceeded" once a file is a few hundred KB.
+   */
+  static bytesToBase64(bytes: Uint8Array): string {
+    let binary = ""
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+    }
+    return btoa(binary)
+  }
+
+  /**
+   * Encode bytes as base64url. Used for share keys, which travel through URLs,
+   * chat apps and clipboards where `+` and `/` are routinely mangled.
+   */
+  static bytesToBase64Url(bytes: Uint8Array): string {
+    return BufferHelper.bytesToBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+  }
+
+  /** Decode a base64url string. Throws on invalid input rather than guessing. */
+  static base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
+    const normalized = value.trim().replace(/-/g, "+").replace(/_/g, "/")
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=")
+
+    if (!/^[A-Z0-9+/]*={0,2}$/i.test(padded)) {
+      throw new Error("Invalid base64url input")
+    }
+
+    const binary = atob(padded)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i)
+    }
+    return bytes
   }
 
   static modAdd(a: bigint, b: bigint, m: bigint): bigint {

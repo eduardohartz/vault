@@ -77,7 +77,10 @@
   }
 
   body {
-    font-family: Arial, Helvetica, sans-serif;
+    /* Inter is loaded via next/font in app/layout.tsx. This rule previously
+       hard-coded Arial, which overrode it — the font was downloaded on every
+       page load and then never rendered. */
+    font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   }
 }
 

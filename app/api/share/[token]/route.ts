@@ -1,52 +1,88 @@
+import type { NextRequest } from "next/server"
 import fs from "node:fs/promises"
 import path from "node:path"
-import { type NextRequest, NextResponse } from "next/server"
+import { apiError, apiJson, enforceRateLimit } from "@/lib/api"
 import { prisma } from "@/lib/db"
+import { getEncryptedFilesDir } from "@/lib/env"
+
+const ENCRYPTED_FILES_DIR = getEncryptedFilesDir()
+
+/**
+ * Delete expired shares, removing the ciphertext from disk before the row.
+ *
+ * Expired shares previously returned 410 but were never cleaned up, so the
+ * encrypted copy sat on disk indefinitely.
+ */
+async function reapExpiredShares(): Promise<void> {
+  try {
+    const expired = await prisma.sharedFile.findMany({
+      where: { expiresAt: { not: null, lte: new Date() } },
+      select: { id: true, sharedFilePath: true },
+      take: 50,
+    })
+
+    for (const share of expired) {
+      try {
+        await fs.rm(path.join(ENCRYPTED_FILES_DIR, share.sharedFilePath), { force: true })
+        await prisma.sharedFile.delete({ where: { id: share.id } })
+      } catch (error) {
+        console.error(`Failed to reap expired share ${share.id}:`, error)
+      }
+    }
+  } catch (error) {
+    console.error("Failed to reap expired shares:", error)
+  }
+}
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
+  const limited = enforceRateLimit(request, "share-fetch", 60, 60_000)
+  if (limited) {
+    return limited
+  }
+
   try {
+    const { token } = await params
+
     const sharedFile = await prisma.sharedFile.findUnique({
-      where: { shareToken: (await params).token },
-      include: {
-        file: false,
-      },
+      where: { shareToken: token },
     })
 
     if (!sharedFile) {
-      return NextResponse.json({ error: "Shared file not found" }, { status: 404 })
+      return apiError("Shared file not found", 404)
     }
 
-    if (sharedFile.expiresAt && new Date() > sharedFile.expiresAt) {
-      return NextResponse.json({ error: "Share link has expired" }, { status: 410 })
+    if (sharedFile.expiresAt && sharedFile.expiresAt.getTime() <= Date.now()) {
+      void reapExpiredShares()
+      return apiError("Share link has expired", 410)
     }
 
-    const encryptedFilesDir = process.env.ENCRYPTED_FILES_DIR || "./encrypted_files"
-    const filePath = path.join(encryptedFilesDir, sharedFile.sharedFilePath)
+    const filePath = path.join(ENCRYPTED_FILES_DIR, sharedFile.sharedFilePath)
 
+    let encryptedFileContent: Buffer
     try {
-      await fs.access(filePath)
+      encryptedFileContent = await fs.readFile(filePath)
     } catch {
-      return NextResponse.json({ error: "File not found on server" }, { status: 404 })
+      return apiError("File not found on server", 404)
     }
 
-    const encryptedFileContent = await fs.readFile(filePath)
+    void reapExpiredShares()
 
-    const encryptedDataBase64 = encryptedFileContent.toString("base64")
-
-    return NextResponse.json({
+    return apiJson({
       id: sharedFile.id,
       salt: sharedFile.salt,
-      expiresAt: sharedFile.expiresAt ? new Date(sharedFile.expiresAt) : null,
-      sharedFilePath: sharedFile.sharedFilePath,
       iv: sharedFile.iv,
       encryptedName: sharedFile.encryptedName,
       nameIv: sharedFile.nameIv,
       nameSalt: sharedFile.nameSalt,
       originalSize: sharedFile.originalSize,
-      encryptedData: encryptedDataBase64,
-      createdAt: new Date(),
+      encryptedData: encryptedFileContent.toString("base64"),
+      expiresAt: sharedFile.expiresAt,
+      // The real creation time. This previously returned `new Date()`, so a
+      // recipient always saw the file as having been shared just now.
+      createdAt: sharedFile.createdAt,
     })
-  } catch {
-    return NextResponse.json({ error: "Failed to fetch shared file" }, { status: 500 })
+  } catch (error) {
+    console.error("Failed to fetch shared file:", error)
+    return apiError("Failed to fetch shared file", 500)
   }
 }

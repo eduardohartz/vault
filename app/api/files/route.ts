@@ -1,10 +1,17 @@
+import type { NextRequest } from "next/server"
 import { existsSync } from "node:fs"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import { type NextRequest, NextResponse } from "next/server"
+import { apiError, apiJson, enforceRateLimit, requireSession } from "@/lib/api"
 import { prisma } from "@/lib/db"
+import { getEncryptedFilesDir, getMaxFileSize, getMaxUserQuota } from "@/lib/env"
 
-const ENCRYPTED_FILES_DIR = process.env.ENCRYPTED_FILES_DIR || "./encrypted_files"
+const ENCRYPTED_FILES_DIR = getEncryptedFilesDir()
+
+// AES-GCM appends a 16-byte authentication tag, so ciphertext is always exactly
+// plaintext + 16. That lets us verify the client's claimed size rather than
+// trusting it for quota accounting.
+const GCM_TAG_BYTES = 16
 
 async function ensureDirectoryExists() {
   if (!existsSync(ENCRYPTED_FILES_DIR)) {
@@ -12,73 +19,149 @@ async function ensureDirectoryExists() {
   }
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
+  const auth = await requireSession()
+  if ("response" in auth) {
+    return auth.response
+  }
+
   try {
-    const userId = request.headers.get("Authorization")?.replace("Bearer ", "")
-
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
+    // Include share state in the same query. The client previously issued a
+    // separate request per file to discover this, turning one page load into
+    // N+1 round trips.
     const files = await prisma.file.findMany({
-      where: { userId },
+      where: { userId: auth.user.id },
       orderBy: { uploadedAt: "desc" },
+      select: {
+        id: true,
+        encryptedName: true,
+        originalSize: true,
+        iv: true,
+        nameIv: true,
+        uploadedAt: true,
+        SharedFile: {
+          select: { shareToken: true, expiresAt: true, createdAt: true },
+        },
+      },
     })
 
-    return NextResponse.json({ files })
-  } catch {
-    return NextResponse.json({ error: "Failed to load files" }, { status: 500 })
+    return apiJson({
+      files: files.map(({ SharedFile, ...file }) => ({
+        ...file,
+        isShared: SharedFile !== null,
+        share: SharedFile
+          ? { shareToken: SharedFile.shareToken, expiresAt: SharedFile.expiresAt, createdAt: SharedFile.createdAt }
+          : null,
+      })),
+    })
+  } catch (error) {
+    console.error("Failed to load files:", error)
+    return apiError("Failed to load files", 500)
   }
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireSession()
+  if ("response" in auth) {
+    return auth.response
+  }
+
+  const limited = enforceRateLimit(request, "upload", 60, 60_000)
+  if (limited) {
+    return limited
+  }
+
+  const maxFileSize = getMaxFileSize()
+
+  // Reject oversized bodies before buffering them into memory. Uploads were
+  // previously unbounded, so a single large request could exhaust the server.
+  const contentLength = Number.parseInt(request.headers.get("content-length") ?? "", 10)
+  if (Number.isFinite(contentLength) && contentLength > maxFileSize * 2) {
+    return apiError(`File exceeds the ${Math.floor(maxFileSize / 1024 / 1024)} MB limit`, 413)
+  }
+
+  let filePath: string | null = null
+
   try {
     await ensureDirectoryExists()
 
     const formData = await request.formData()
-    const encryptedData = formData.get("encryptedData") as string
-    const iv = formData.get("iv") as string
-    const salt = formData.get("salt") as string
-    const encryptedName = formData.get("encryptedName") as string
-    const nameIv = formData.get("nameIv") as string
-    const nameSalt = formData.get("nameSalt") as string
-    const originalSize = Number.parseInt(formData.get("originalSize") as string)
-    const userId = request.headers.get("Authorization")?.replace("Bearer ", "")
+    const encryptedData = formData.get("encryptedData")
+    const iv = formData.get("iv")
+    const encryptedName = formData.get("encryptedName")
+    const nameIv = formData.get("nameIv")
+    const rawOriginalSize = formData.get("originalSize")
 
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (
+      typeof encryptedData !== "string"
+      || typeof iv !== "string"
+      || typeof encryptedName !== "string"
+      || typeof nameIv !== "string"
+      || typeof rawOriginalSize !== "string"
+    ) {
+      return apiError("Bad Request", 400)
     }
 
-    if (!encryptedData || !iv || !salt || !encryptedName || !nameIv || !nameSalt || !originalSize) {
-      return NextResponse.json({ error: "Bad Request" }, { status: 400 })
+    const originalSize = Number.parseInt(rawOriginalSize, 10)
+
+    // `!originalSize` used to reject a perfectly valid zero-byte file.
+    if (!Number.isInteger(originalSize) || originalSize < 0) {
+      return apiError("Bad Request", 400)
     }
 
-    const fileId = crypto.randomUUID()
-    const fileName = `${fileId}.enc`
-    const filePath = join(ENCRYPTED_FILES_DIR, fileName)
-
-    const encryptedFileData = {
-      encryptedData,
-      iv,
+    if (originalSize > maxFileSize) {
+      return apiError(`File exceeds the ${Math.floor(maxFileSize / 1024 / 1024)} MB limit`, 413)
     }
 
-    await writeFile(filePath, JSON.stringify(encryptedFileData), "utf8")
+    const ciphertext = Buffer.from(encryptedData, "base64")
+
+    if (ciphertext.length !== originalSize + GCM_TAG_BYTES) {
+      return apiError("Encrypted payload does not match the declared size", 400)
+    }
+
+    const used = await prisma.file.aggregate({
+      where: { userId: auth.user.id },
+      _sum: { originalSize: true },
+    })
+
+    const quota = getMaxUserQuota()
+    if ((used._sum.originalSize ?? 0) + originalSize > quota) {
+      return apiError(`Storage quota of ${Math.floor(quota / 1024 / 1024)} MB exceeded`, 413)
+    }
+
+    const fileName = `${crypto.randomUUID()}.enc`
+    filePath = join(ENCRYPTED_FILES_DIR, fileName)
+
+    await writeFile(filePath, JSON.stringify({ encryptedData, iv }), "utf8")
 
     const newFile = await prisma.file.create({
       data: {
         encryptedName,
         originalSize,
         encryptedPath: fileName,
-        salt,
         iv,
-        nameSalt,
         nameIv,
-        userId,
+        userId: auth.user.id,
+      },
+      select: {
+        id: true,
+        encryptedName: true,
+        originalSize: true,
+        iv: true,
+        nameIv: true,
+        uploadedAt: true,
       },
     })
 
-    return NextResponse.json({ success: true, file: newFile })
-  } catch {
-    return NextResponse.json({ error: "Upload failed" }, { status: 500 })
+    return apiJson({ success: true, file: { ...newFile, isShared: false, share: null } })
+  } catch (error) {
+    // The database row is the source of truth. If the insert failed after the
+    // blob landed on disk, remove the blob so it cannot accumulate as an
+    // unreferenced orphan.
+    if (filePath) {
+      await rm(filePath, { force: true }).catch(() => {})
+    }
+    console.error("Upload failed:", error)
+    return apiError("Upload failed", 500)
   }
 }

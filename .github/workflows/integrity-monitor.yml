@@ -1,0 +1,117 @@
+name: Deployment integrity monitor
+
+# Checks that the code a live deployment serves is byte-for-byte the code CI
+# built and signed.
+#
+# This runs from GitHub, not from the server being checked, and that is the
+# whole point. An integrity check running inside the application can be deleted
+# by whoever modified the application. Running it from outside forces an
+# attacker to serve clean assets to this workflow and modified assets to real
+# users simultaneously — still possible for a targeted adversary, but a large
+# step up from the opportunistic compromise this is meant to catch.
+
+on:
+  schedule:
+    # Hourly. A compromise is detected within an hour rather than whenever
+    # someone next happens to look.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Deployment URL to check (defaults to the DEPLOYMENT_URL variable)
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+jobs:
+  check:
+    name: Compare live deployment against signed build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Resolve target
+        id: target
+        run: |
+          url="${{ github.event.inputs.url || vars.DEPLOYMENT_URL }}"
+          if [ -z "$url" ]; then
+            echo "No DEPLOYMENT_URL repository variable set; nothing to monitor."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "url=${url%/}" >> "$GITHUB_OUTPUT"
+
+      - name: Read the deployed build SHA
+        id: deployed
+        if: steps.target.outputs.skip != 'true'
+        run: |
+          sha=$(curl -fsS --max-time 30 "${{ steps.target.outputs.url }}/api/version" | node -e \
+            'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>process.stdout.write(JSON.parse(d).sha||""))')
+          if [ -z "$sha" ] || [ "$sha" = "development" ]; then
+            echo "Deployment did not report a build SHA (got '$sha')." >&2
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Download the manifest for that build
+        if: steps.target.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha="${{ steps.deployed.outputs.sha }}"
+          run_id=$(gh run list --workflow build.yml --commit "$sha" \
+            --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+
+          if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
+            echo "::error::No successful build run found for commit $sha."
+            echo "The deployment reports a build that this repository never produced, which is itself a finding."
+            exit 1
+          fi
+
+          gh run download "$run_id" --name bundle-manifest --dir .
+          echo "Using manifest from build run $run_id"
+
+      - name: Verify served assets
+        if: steps.target.outputs.skip != 'true'
+        run: node scripts/check-deployment.mjs --url "${{ steps.target.outputs.url }}" --manifest bundle-manifest.json
+
+      - name: Raise an issue on mismatch
+        if: failure() && steps.target.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Deployment integrity check failed"
+          existing=$(gh issue list --state open --label integrity --search "$title" --json number --jq '.[0].number')
+
+          body=$(cat <<'EOB'
+          The scheduled integrity monitor found that the live deployment is not
+          serving the assets CI built and signed.
+
+          **Do not sign in until this is resolved.** Authenticating against a
+          modified deployment hands your passkey PRF output — and therefore your
+          file encryption keys — to whatever code is being served.
+
+          Steps:
+          1. Open the failed run above and read which assets differ.
+          2. If a deploy was in flight, re-run the monitor; a transient mismatch
+             during rollout is expected.
+          3. Otherwise take the deployment offline, then redeploy from a verified
+             image with `./scripts/verify-image.sh`.
+          EOB
+          )
+
+          if [ -n "$existing" ] && [ "$existing" != "null" ]; then
+            gh issue comment "$existing" --body "Integrity check failed again: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          else
+            gh issue create --title "$title" --label integrity \
+              --body "$body
+
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi

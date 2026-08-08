@@ -1,19 +1,45 @@
+x-database-url: &database-url postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+
 services:
+  # Applies versioned migrations, then exits. The app waits for it to succeed,
+  # so the schema is always current before any request is served.
+  migrate:
+    build:
+      context: .
+      target: migrator
+    restart: no
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      postgresql:
+        condition: service_healthy
+
   app:
     build: .
     restart: always
     environment:
-      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
-      - MAX_USERS=${MAX_USERS}
-      - ENCRYPTED_FILES_DIR=${ENCRYPTED_FILES_DIR}
-      - PORT=${PORT}
+      DATABASE_URL: *database-url
+      # Public URL users reach the vault on. Share links are built from this,
+      # and WebAuthn verifies assertions against its origin, so it must match
+      # what the browser sees. Read at runtime, so no rebuild is needed.
+      APP_URL: ${APP_URL}
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-}
+      MAX_USERS: ${MAX_USERS:-3}
+      MAX_FILE_SIZE_BYTES: ${MAX_FILE_SIZE_BYTES:-104857600}
+      MAX_USER_QUOTA_BYTES: ${MAX_USER_QUOTA_BYTES:-1073741824}
+      SESSION_TTL_MINUTES: ${SESSION_TTL_MINUTES:-60}
+      # Fixed container path; the host location is controlled by the volume.
+      ENCRYPTED_FILES_DIR: /usr/src/app/encrypted_files
+      PORT: 3000
     ports:
-      - "${PORT}:${PORT}"
+      - "${PORT:-3000}:3000"
     depends_on:
       postgresql:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     volumes:
-      - encrypted_data:/usr/src/app/${ENCRYPTED_FILES_DIR}
+      - encrypted_data:/usr/src/app/encrypted_files
 
   postgresql:
     image: postgres:16
@@ -22,10 +48,11 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+    # Deliberately not published to the host: only the app needs to reach it.
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: [CMD-SHELL, "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       retries: 5
       start_period: 30s

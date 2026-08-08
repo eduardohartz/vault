@@ -6,7 +6,7 @@ import { HeroUIProvider } from "@heroui/react"
 import { ThemeProvider as NextThemesProvider } from "next-themes"
 import { useRouter } from "next/navigation"
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
+export function ThemeProvider({ children, nonce }: { children: React.ReactNode, nonce?: string }) {
   const router = useRouter()
 
   return (
@@ -16,6 +16,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         defaultTheme="dark"
         themes={["light", "dark"]}
         enableSystem={false}
+        nonce={nonce}
       >
         {children}
       </NextThemesProvider>
